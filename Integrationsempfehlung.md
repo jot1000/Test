@@ -215,3 +215,56 @@ Schalter / Relais (24VDC)
 | Pin 2 | Wiper (common) |
 | Pin 3 | Schließer (closed contact) |
 | Max. Last | 24VDC / 1A |
+
+---
+
+## 10. Moeller Easy 619-DC-RC als vorgelagerte Logik
+
+Der **Moeller Easy 619-DC-RC** (Eaton) kann als programmierbares Steuerrelais eingesetzt werden, um die Digitaleingänge des CT3 IO-Moduls zu schalten – z.B. für zeitgesteuerte Stufenumschaltung oder Verriegelungslogik.
+
+### Technische Spezifikationen
+
+| Merkmal | Wert |
+|---|---|
+| Versorgung | 24VDC |
+| Digitaleingänge | 12 × 24VDC |
+| Relaisausgänge | 6 × (max. 250VAC / 8A, potenzialfrei) |
+| Echtzeituhr | ja (RC = Real Clock) |
+| Kommunikation | easy-NET (proprietär, kein LonWorks) |
+| Programmierung | Leiterdiagramm / Funktionsblöcke via easy-SOFT |
+
+### Signalweg Easy 619-DC-RC → CT3 IO-Modul → EC16V700
+
+```
+Schalter / BMS-Signal (24VDC)
+        │
+        ▼
+Easy 619-DC-RC
+  Logik: z.B. Zeitschaltuhr, Verriegelung, Stufenwahl
+  Ausgang Q1 (Relais, potenzialfrei)
+        │  24VDC-Schaltspannung
+        ▼
+CT3 IO-Modul (IN1 … IN8, 24VDC)
+  Eingang-Aktion: „Setze Geschwindigkeit auf Drehzahl 2"
+        │  LonWorks (FTT10 / RS485)
+        ▼
+EC16V700  →  nviSetSpeed = Drehzahl 2 (RPM)
+```
+
+### Typische Anwendungsfälle
+
+| Funktion | Easy-Konfiguration |
+|---|---|
+| Zeitgesteuerte Stufenumschaltung | Wochenprogramm (Echtzeituhr) → Q1 schaltet IN1 am CT3 |
+| Verriegelung mit Druckwächter | I1 (Druckwächter) AND I2 (Betriebsfreigabe) → Q1 |
+| Einschaltverzögerung | I1 EIN → Verzögerungsblock → Q1 (verhindert Kurzzeitpulse) |
+| Handbetrieb-Automatik-Umschaltung | I1 = Hand (Q1 direkt), I2 = Auto (Zeitprogramm → Q1) |
+
+### Verdrahtung
+
+| Easy 619 Klemme | CT3 IO-Modul Klemme | Signal |
+|---|---|---|
+| Q1 (Schließer) | IN1 | 24VDC bei aktivem Ausgang |
+| 0V / GND (Easy) | GND (CT3) | gemeinsame Masse |
+
+> **Hinweis:** Da die Relaisausgänge des Easy 619-DC-RC potenzialfrei sind, muss die 24VDC-Versorgung für die CT3-Eingänge extern zugeführt werden (über den Schließerkontakt Q1 schalten).
