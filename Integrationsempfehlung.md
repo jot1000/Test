@@ -134,10 +134,84 @@ Steuerung liest: Poll-Requests
 
 **Für eine einfache Steuerungsintegration** wird empfohlen:
 
-1. **LonWorks TP/FT-10 Schnittstelle** am Controller verwenden (z.B. PCI-Karte oder USB-Adapter mit OpenLDV)
+1. **Exyte Control Terminal 3 (CT3)** mit LON/FTT10-IO-Modul verwenden – bietet galvanische Eingänge und ist die herstellereigene Lösung (→ Abschnitt 9)
 2. Nur die **drei Kern-NVs** binden: `nviSetSpeed` (Sollwert), `nvoActualSpeed` (Istwert), `nvoFFUState` (Status)
 3. **Zykluszeit**: Sollwert bei Änderung senden, Istwert und Status alle 30 s pollen
 4. **Fehlerreaktion**: Bei Bits 1, 3, 4 in `nvoFFUState` → Gerät auf 0 RPM setzen und Alarm ausgeben
 5. **PID-Vorkonfiguration**: Einmalig bei Inbetriebnahme via LNS-Tool – keine zyklische Änderung notwendig
 
 Diese Minimalintegration ermöglicht eine zuverlässige Drehzahlsteuerung und Fehlerüberwachung mit weniger als 20 Zeilen Steuerungscode.
+
+---
+
+## 9. Galvanisches Ein-/Ausschalten – Exyte Control Terminal 3 (CT3)
+
+Für eine **galvanische Schnittstelle** (Schalter/Relais → vordefinierte Drehzahl) bietet der **Exyte CT3** mit LON/FTT10-IO-Modul oder LON/RS485-IO-Modul die herstellereigene Lösung (Doku: `0958_001.pdf`).
+
+### Technische Spezifikationen IO-Modul
+
+| Merkmal | Wert |
+|---|---|
+| Digitale Eingänge | 8 × (IN1–IN8, 24VDC) |
+| Digitale Ausgänge | 8 × (OUT1–OUT8) |
+| Relaisausgang (Basisstation) | 1 × potenzialfrei, max. 24V / 1A |
+| Galvanische Trennung | Optisch isolierter Relaisausgang |
+| LonWorks-Varianten | LON/FTT10-IO-Modul oder LON/RS485-IO-Modul |
+| Max. FFUs pro Kanal | 63 Geräte |
+
+### Funktionsweise – Stufenumschaltung über Digitaleingang
+
+```
+Schalter / Relais (24VDC)
+        │
+        ▼ galvanischer Eingang
+  CT3 IO-Modul (IN1 … IN8)
+        │
+        ▼ konfigurierte Eingang-Aktion
+  „Setze Geschwindigkeit auf Drehzahl 2"
+        │
+        ▼ LonWorks (FTT10 / RS485)
+  EC16V700  →  nviSetSpeed = Drehzahl 2 (RPM)
+```
+
+**Konfigurierbare Eingang-Aktionen pro Digitaleingang:**
+- Keine Aktion
+- Setze Geschwindigkeit auf **Drehzahl 2** (vordefinierter RPM-Wert)
+- Stoppe Lüftergerät
+
+**Konfigurierbare Ausgang-Aktionen:**
+- Ausgang nicht setzen
+- Ausgang setzen wenn Drehzahl 2 aktiv
+- Ausgang setzen bei Kanalfehler
+- Ausgang setzen bei Gesamtfehler
+
+### Konfiguration am CT3
+
+1. Kanal → Gerät auswählen (Geräte-Nr. des EC16V700)
+2. Solldrehzahl für **Drehzahl 1** (Normal) und **Drehzahl 2** (Schaltstufe) in % eintragen
+3. Eingang-Aktion für IN1–IN8 zuweisen: `„Setze Geschwindigkeit auf Drehzahl 2"`
+4. IO-Modul per **Service-Pin-Installation** einbinden (Kanal 10, Gerät 1)
+
+### Verdrahtung IO-Modul (RS485-Variante)
+
+| Kabel-Pin | IO-Modul-Pin | Signal |
+|---|---|---|
+| 13 | 1 | RS485 A |
+| 26 | 2 | RS485 B |
+
+### Verdrahtung IO-Modul (FTT10-Variante)
+
+| Kabel-Pin | IO-Modul-Pin | Signal |
+|---|---|---|
+| 13 / 26 | 5, 6 | NET A / NET B |
+| 1, 3 (Patch) | – | NET A |
+| 2, 6 (Patch) | – | NET B |
+
+### Relaisausgang Basisstation (Störmelderelais)
+
+| Pin | Funktion |
+|---|---|
+| Pin 1 | Öffner (open contact) |
+| Pin 2 | Wiper (common) |
+| Pin 3 | Schließer (closed contact) |
+| Max. Last | 24VDC / 1A |
