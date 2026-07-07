@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kite-Wind Sempachersee</title>
+<style>
+:root {
+  --surface: #fcfcfb;
+  --page: #f9f9f7;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11,11,11,0.10);
+  --wind: #2a78d6;        /* Serie 1: Mittelwind */
+  --gust: #eb6834;        /* Serie 2: Böen */
+  --good: #0ca30c;
+  --warn: #fab219;
+  --window-fill: rgba(95,178,84,0.28);   /* Kite-Fenster-Schattierung */
+  --night-fill: rgba(137,135,129,0.14);
+  /* sequenzielle Grün-Rampe (Heatmap), 0 -> hoch */
+  --ramp: #f0efec,#d7ead0,#b0d8a4,#88c67b,#5fb254,#369c31,#157c15,#045d04;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1a1a19;
+    --page: #0d0d0d;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255,255,255,0.10);
+    --wind: #3987e5;
+    --gust: #d95926;
+    --window-fill: rgba(93,157,66,0.30);
+    --night-fill: rgba(137,135,129,0.12);
+    --ramp: #242423,#2b431f,#365827,#426e2f,#4f8538,#5d9d42,#6cb64d,#7cd059;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.45;
+}
+header {
+  padding: 16px 16px 4px;
+  max-width: 860px;
+  margin: 0 auto;
+}
+header h1 { font-size: 1.3rem; margin: 0 0 2px; }
+header p { margin: 0; color: var(--ink-2); font-size: 0.85rem; }
+main { max-width: 860px; margin: 0 auto; padding: 8px 12px 32px; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 14px 12px;
+  margin: 12px 0;
+}
+.card h2 { font-size: 1.0rem; margin: 0 0 10px; }
+.hint { color: var(--muted); font-size: 0.8rem; }
+.error { color: var(--gust); font-size: 0.85rem; }
+
+/* Schwellen-Umschalter */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 8px 0 0;
+}
+.seg button {
+  border: 0; background: transparent; color: var(--ink-2);
+  font: inherit; font-size: 0.85rem; padding: 6px 14px; cursor: pointer;
+}
+.seg button.active { background: var(--wind); color: #fff; }
+
+/* Jetzt-Karte */
+.now-grid { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+.stat { min-width: 96px; }
+.stat .value { font-size: 1.9rem; font-weight: 650; }
+.stat .value small { font-size: 0.9rem; font-weight: 400; color: var(--ink-2); }
+.stat .label { color: var(--ink-2); font-size: 0.8rem; }
+.ampel {
+  display: inline-flex; align-items: center; gap: 8px;
+  border-radius: 999px; padding: 6px 14px; font-weight: 600; font-size: 0.9rem;
+  border: 1px solid var(--border);
+}
+.ampel .dot { width: 12px; height: 12px; border-radius: 50%; }
+.dir-arrow { display: inline-block; font-size: 1.4rem; }
+
+svg { display: block; width: 100%; height: auto; }
+svg text { font-family: inherit; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 6px; font-size: 0.8rem; color: var(--ink-2); }
+.legend .item { display: inline-flex; align-items: center; gap: 6px; }
+.legend .swatch { width: 14px; height: 3px; border-radius: 2px; }
+.legend .swatch.box { height: 11px; border-radius: 3px; }
+
+#tooltip {
+  position: fixed; pointer-events: none; z-index: 10; display: none;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 9px; font-size: 0.78rem; box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+  max-width: 240px;
+}
+footer { max-width: 860px; margin: 0 auto; padding: 0 16px 28px; color: var(--muted); font-size: 0.75rem; }
+footer a { color: inherit; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🪁 Kite-Wind Sempachersee</h1>
+  <p>Sempach LU · Live: Messstation Egolzwil · Prognose: ICON-CH1 · Einheit: Knoten</p>
+  <div class="seg" id="thresholdToggle" role="group" aria-label="Kite-Schwelle">
+    <button data-th="foil">Foil ≥ 10 kn</button>
+    <button data-th="twintip" class="active">Twintip ≥ 12 kn</button>
+  </div>
+</header>
+
+<main>
+  <section class="card" id="nowCard">
+    <h2>Jetzt <span class="hint" id="nowTime"></span></h2>
+    <div id="nowBody" class="hint">Lade Live-Daten …</div>
+  </section>
+
+  <section class="card">
+    <h2>Prognose 48 h</h2>
+    <div id="forecastBody" class="hint">Lade Prognose …</div>
+  </section>
+
+  <section class="card">
+    <h2>Kite-Kalender <span class="hint">— Wahrscheinlichkeit eines Kite-Tags, Mittel über alle Jahre</span></h2>
+    <div id="calendarBody" class="hint">Lade Statistik …</div>
+  </section>
+
+  <section class="card">
+    <h2>Statistik</h2>
+    <div id="statsBody" class="hint">Lade Statistik …</div>
+  </section>
+</main>
+
+<footer>
+  Daten: <a href="https://open-meteo.com/">Open-Meteo</a> (Modell ERA5/ICON, nicht-kommerzielle Nutzung) ·
+  <a href="https://opendatadocs.meteoswiss.ch/">MeteoSwiss Open Data</a> (Station Egolzwil) ·
+  Zeiten in Europe/Zürich · <span id="metaInfo"></span>
+</footer>
+
+<div id="tooltip"></div>
+
+<script>
+"use strict";
+
+/* ---------- Konfiguration (Spiegel von config.py) ---------- */
+const CONFIG = {
+  lat: 47.136,
+  lon: 8.192,
+  timezone: "Europe/Zurich",
+  thresholds: { foil: 10, twintip: 12 },
+  minWindowHours: 2,
+  gustyFactor: 2.0,
+  station: "ego",
+  meteoswissBase: "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn",
+  forecastUrl: "https://api.open-meteo.com/v1/forecast",
+  forecastModels: "meteoswiss_icon_ch1",
+  statsFile: "stats.json",
+};
+const SECTORS = ["N","NNO","NO","ONO","O","OSO","SO","SSO","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+const MONTHS = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+const KN_PER_KMH = 1 / 1.852, KN_PER_MS = 3.6 / 1.852;
+
+let currentThreshold = "twintip";
+let statsData = null;
+let forecastData = null;
+
+/* ---------- Helfer ---------- */
+const $ = (id) => document.getElementById(id);
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const rampColors = () => cssVar("--ramp").split(",").map((s) => s.trim());
+const fmtKn = (v) => (v == null || isNaN(v)) ? "–" : Math.round(v * 10) / 10;
+const sectorOf = (deg) => SECTORS[Math.floor(((deg % 360) / 22.5) + 0.5) % 16];
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+}
+
+/* Tooltip (ein gemeinsames Element für alle Diagramme) */
+const tip = $("tooltip");
+function attachTooltip(el, html) {
+  el.addEventListener("pointerenter", () => { tip.innerHTML = html; tip.style.display = "block"; });
+  el.addEventListener("pointermove", (e) => {
+    const x = Math.min(e.clientX + 12, window.innerWidth - tip.offsetWidth - 8);
+    tip.style.left = x + "px";
+    tip.style.top = (e.clientY + 14) + "px";
+  });
+  el.addEventListener("pointerleave", () => { tip.style.display = "none"; });
+}
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  return el;
+}
+
+/* Kite-Fenster in einer Stundenreihe finden (gleiche Regel wie core.py) */
+function findWindows(hours, thresholdKn) {
+  const windows = [];
+  let run = [];
+  const flush = () => {
+    if (run.length >= CONFIG.minWindowHours) windows.push(run);
+    run = [];
+  };
+  let prev = null;
+  for (const h of hours) {
+    const contiguous = prev !== null && h.time - prev === 3600 * 1000;
+    if (h.daylight && h.speed != null && h.speed >= thresholdKn) {
+      if (run.length && !contiguous) flush();
+      run.push(h);
+    } else flush();
+    prev = h.time;
+  }
+  flush();
+  return windows;
+}
+
+/* ---------- Jetzt: Live-Wind Egolzwil (10-Minuten-Werte) ---------- */
+async function loadNow() {
+  const body = $("nowBody");
+  try {
+    const url = `${CONFIG.meteoswissBase}/${CONFIG.station}/ogd-smn_${CONFIG.station}_t_now.csv`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const lines = text.trim().split(/\r?\n/);
+    const header = lines[0].split(";").map((c) => c.trim().toLowerCase());
+    const pick = (cands) => cands.map((c) => header.indexOf(c)).find((i) => i >= 0);
+    const iTime = header.indexOf("reference_timestamp");
+    const iSpeed = pick(["fu3010z0", "fkl010z0"]);
+    const iGust = pick(["fu3010z1", "fkl010z1"]);
+    const iDir = pick(["dkl010z0"]);
+    if (iTime < 0 || iSpeed === undefined) throw new Error("Windspalten nicht gefunden");
+    const toKn = (idx, raw) => {
+      const v = parseFloat(raw);
+      if (isNaN(v)) return null;
+      return header[idx].startsWith("fu3") ? v * KN_PER_KMH : v * KN_PER_MS;
+    };
+    // letzte Zeile mit gültigem Windwert
+    let row = null;
+    for (let i = lines.length - 1; i > 0 && !row; i--) {
+      const cells = lines[i].split(";");
+      if (cells[iSpeed] !== "" && !isNaN(parseFloat(cells[iSpeed]))) row = cells;
+    }
+    if (!row) throw new Error("keine gültigen Werte");
+
+    const speed = toKn(iSpeed, row[iSpeed]);
+    const gust = iGust !== undefined ? toKn(iGust, row[iGust]) : null;
+    const dir = iDir !== undefined ? parseFloat(row[iDir]) : null;
+
+    // Zeitstempel ist UTC im Format TT.MM.JJJJ HH:MM
+    const m = row[iTime].match(/(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})/);
+    let timeStr = row[iTime];
+    if (m) {
+      const dUtc = new Date(Date.UTC(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]));
+      timeStr = dUtc.toLocaleString("de-CH", {
+        timeZone: CONFIG.timezone, hour: "2-digit", minute: "2-digit",
+        day: "2-digit", month: "2-digit",
+      });
+    }
+    $("nowTime").textContent = `· Egolzwil, ${timeStr}`;
+
+    let ampel;
+    if (speed >= CONFIG.thresholds.twintip)
+      ampel = { color: "var(--good)", icon: "✅", text: "Kitebar (twintip)" };
+    else if (speed >= CONFIG.thresholds.foil)
+      ampel = { color: "var(--warn)", icon: "🟡", text: "Vielleicht (foil)" };
+    else
+      ampel = { color: "var(--muted)", icon: "⛔", text: "Nicht kitebar" };
+
+    const arrow = dir == null ? "" :
+      `<span class="dir-arrow" style="transform:rotate(${(dir + 180) % 360}deg)">↑</span>`;
+    body.classList.remove("hint");
+    body.innerHTML = `
+      <div class="now-grid">
+        <div class="stat"><div class="value">${fmtKn(speed)}<small> kn</small></div><div class="label">Mittelwind (10 min)</div></div>
+        <div class="stat"><div class="value">${fmtKn(gust)}<small> kn</small></div><div class="label">Böen</div></div>
+        <div class="stat"><div class="value">${arrow} ${dir == null ? "–" : esc(sectorOf(dir))}<small> ${dir == null ? "" : Math.round(dir) + "°"}</small></div><div class="label">Richtung (woher)</div></div>
+        <div class="ampel"><span class="dot" style="background:${ampel.color}"></span>${ampel.icon} ${esc(ampel.text)}</div>
+      </div>`;
+  } catch (e) {
+    body.className = "error";
+    body.textContent = `Live-Daten nicht verfügbar (${e.message}).`;
+  }
+}
+
+/* ---------- Prognose 48 h ---------- */
+async function loadForecast() {
+  const body = $("forecastBody");
+  const params = new URLSearchParams({
+    latitude: CONFIG.lat, longitude: CONFIG.lon,
+    hourly: "wind_speed_10m,wind_gusts_10m,wind_direction_10m",
+    daily: "sunrise,sunset",
+    timezone: CONFIG.timezone, wind_speed_unit: "kn", forecast_days: 3,
+  });
+  try {
+    let res = await fetch(`${CONFIG.forecastUrl}?${params}&models=${CONFIG.forecastModels}`);
+    if (!res.ok) res = await fetch(`${CONFIG.forecastUrl}?${params}`); // Fallback Standardmodell
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    forecastData = await res.json();
+    renderForecast();
+  } catch (e) {
+    body.className = "error";
+    body.textContent = `Prognose nicht verfügbar (${e.message}).`;
+  }
+}
+
+function forecastHours() {
+  const h = forecastData.hourly;
+  const daylight = {};
+  forecastData.daily.time.forEach((d, i) => {
+    daylight[d] = [new Date(forecastData.daily.sunrise[i]), new Date(forecastData.daily.sunset[i])];
+  });
+  const now = Date.now();
+  const hours = [];
+  for (let i = 0; i < h.time.length && hours.length < 48; i++) {
+    const t = new Date(h.time[i]); // lokale Zeit des Browsers ≈ Spot-Zeit für CH-Nutzer
+    if (t.getTime() + 3600e3 < now) continue;
+    const sun = daylight[h.time[i].slice(0, 10)];
+    const day = sun ? (t.getTime() + 3600e3 > sun[0].getTime() && t.getTime() < sun[1].getTime()) : false;
+    hours.push({
+      time: t.getTime(), label: h.time[i],
+      speed: h.wind_speed_10m[i], gust: h.wind_gusts_10m[i], dir: h.wind_direction_10m[i],
+      daylight: day,
+    });
+  }
+  return hours;
+}
+
+function renderForecast() {
+  if (!forecastData) return;
+  const body = $("forecastBody");
+  const hours = forecastHours();
+  const thr = CONFIG.thresholds[currentThreshold];
+  const windows = findWindows(hours, thr);
+
+  const W = 860, H = 260, padL = 34, padR = 8, padT = 10, padB = 34;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const maxY = Math.max(20, ...hours.map((h) => h.gust || 0)) * 1.08;
+  const x = (i) => padL + (i / (hours.length - 1)) * iw;
+  const y = (v) => padT + ih - (v / maxY) * ih;
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": "Windprognose 48 Stunden in Knoten" });
+
+  // Nacht-Schattierung
+  hours.forEach((h, i) => {
+    if (!h.daylight) svg.append(svgEl("rect", {
+      x: x(Math.max(0, i - 0.5)), y: padT,
+      width: iw / (hours.length - 1), height: ih, fill: "var(--night-fill)",
+    }));
+  });
+  // Kite-Fenster hervorheben
+  for (const win of windows) {
+    const i0 = hours.indexOf(win[0]), i1 = hours.indexOf(win[win.length - 1]);
+    svg.append(svgEl("rect", {
+      x: x(i0 - 0.5 < 0 ? 0 : i0 - 0.5), y: padT,
+      width: x(i1 + 0.5 > hours.length - 1 ? hours.length - 1 : i1 + 0.5) - x(i0 - 0.5 < 0 ? 0 : i0 - 0.5),
+      height: ih, fill: "var(--window-fill)", rx: 3,
+    }));
+  }
+  // Gitter + Y-Achse
+  for (let v = 0; v <= maxY; v += 5) {
+    svg.append(svgEl("line", { x1: padL, x2: W - padR, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 }));
+    const t = svgEl("text", { x: padL - 5, y: y(v) + 3, "text-anchor": "end", "font-size": 10, fill: "var(--muted)" });
+    t.textContent = v;
+    svg.append(t);
+  }
+  // Schwelle
+  svg.append(svgEl("line", { x1: padL, x2: W - padR, y1: y(thr), y2: y(thr),
+    stroke: "var(--good)", "stroke-width": 1.5, "stroke-dasharray": "5 4" }));
+  // X-Beschriftung alle 6 h + Tagesgrenzen
+  hours.forEach((h, i) => {
+    const hh = h.label.slice(11, 13);
+    if (hh === "00") svg.append(svgEl("line", { x1: x(i), x2: x(i), y1: padT, y2: padT + ih, stroke: "var(--axis)", "stroke-width": 1 }));
+    if (+hh % 6 === 0) {
+      const t = svgEl("text", { x: x(i), y: H - 18, "text-anchor": "middle", "font-size": 10, fill: "var(--muted)" });
+      t.textContent = hh;
+      svg.append(t);
+      if (hh === "12") {
+        const d = svgEl("text", { x: x(i), y: H - 4, "text-anchor": "middle", "font-size": 10, fill: "var(--ink-2)" });
+        d.textContent = new Date(h.time).toLocaleDateString("de-CH", { weekday: "short", day: "numeric", month: "numeric" });
+        svg.append(d);
+      }
+    }
+  });
+  // Linien
+  const path = (get, color) => {
+    const dstr = hours.map((h, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(get(h) || 0).toFixed(1)}`).join("");
+    svg.append(svgEl("path", { d: dstr, fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round" }));
+  };
+  path((h) => h.gust, "var(--gust)");
+  path((h) => h.speed, "var(--wind)");
+
+  // Hover-Ebene (Crosshair + Tooltip)
+  const hover = svgEl("rect", { x: padL, y: padT, width: iw, height: ih, fill: "transparent" });
+  const cross = svgEl("line", { y1: padT, y2: padT + ih, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
+  svg.append(cross, hover);
+  hover.addEventListener("pointermove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * W;
+    const i = Math.max(0, Math.min(hours.length - 1, Math.round(((px - padL) / iw) * (hours.length - 1))));
+    const h = hours[i];
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i));
+    cross.setAttribute("visibility", "visible");
+    tip.innerHTML = `<b>${esc(h.label.replace("T", " "))}</b><br>Wind ${fmtKn(h.speed)} kn · Böen ${fmtKn(h.gust)} kn<br>${esc(sectorOf(h.dir))} (${Math.round(h.dir)}°)${h.daylight ? "" : " · Nacht"}`;
+    tip.style.display = "block";
+    tip.style.left = Math.min(e.clientX + 12, window.innerWidth - tip.offsetWidth - 8) + "px";
+    tip.style.top = (e.clientY + 14) + "px";
+  });
+  hover.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); tip.style.display = "none"; });
+
+  body.className = "";
+  body.innerHTML = "";
+  body.append(svg);
+  const legend = document.createElement("div");
+  legend.className = "legend";
+  legend.innerHTML = `
+    <span class="item"><span class="swatch" style="background:var(--wind)"></span>Mittelwind</span>
+    <span class="item"><span class="swatch" style="background:var(--gust)"></span>Böen</span>
+    <span class="item"><span class="swatch box" style="background:var(--window-fill)"></span>Kite-Fenster (≥${thr} kn, ≥${CONFIG.minWindowHours} h, Tageslicht)</span>
+    <span class="item"><span class="swatch box" style="background:var(--night-fill)"></span>Nacht</span>`;
+  body.append(legend);
+
+  if (!windows.length) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "Kein Kite-Fenster in den nächsten 48 h.";
+    body.append(p);
+  }
+}
+
+/* ---------- Kalender-Heatmap (Phase 2) ---------- */
+function rampColor(t) {
+  const ramp = rampColors();
+  return ramp[Math.max(0, Math.min(ramp.length - 1, Math.round(t * (ramp.length - 1))))];
+}
+
+function renderCalendar() {
+  const body = $("calendarBody");
+  if (!statsData) return;
+  const cal = statsData[currentThreshold].calendar;
+  const pmax = Math.max(0.05, ...cal.map((c) => c.p));
+
+  const cell = 22, gapX = 4, padL = 22, padT = 18;
+  const W = padL + 12 * (cell + gapX), H = padT + 31 * (cell * 0.62 + 2) + 4;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": "Jahreskalender der Kite-Tag-Wahrscheinlichkeit" });
+
+  MONTHS.forEach((m, i) => {
+    const t = svgEl("text", { x: padL + i * (cell + gapX) + cell / 2, y: 12,
+      "text-anchor": "middle", "font-size": 9.5, fill: "var(--ink-2)" });
+    t.textContent = m;
+    svg.append(t);
+  });
+  [1, 10, 20, 31].forEach((d) => {
+    const t = svgEl("text", { x: padL - 5, y: padT + (d - 1) * (cell * 0.62 + 2) + 10,
+      "text-anchor": "end", "font-size": 9, fill: "var(--muted)" });
+    t.textContent = d;
+    svg.append(t);
+  });
+
+  for (const c of cal) {
+    const rx = padL + (c.m - 1) * (cell + gapX);
+    const ry = padT + (c.d - 1) * (cell * 0.62 + 2);
+    const r = svgEl("rect", { x: rx, y: ry, width: cell, height: cell * 0.62, rx: 3,
+      fill: rampColor(c.p / pmax) });
+    attachTooltip(r, `<b>${c.d}. ${MONTHS[c.m - 1]}</b><br>P(Kite-Tag) ≈ ${(c.p * 100).toFixed(0)} % <span style="color:var(--muted)">(${esc(currentThreshold)}, ±3 Tage geglättet)</span>`);
+    svg.append(r);
+  }
+
+  body.className = "";
+  body.innerHTML = "";
+  body.append(svg);
+  const legend = document.createElement("div");
+  legend.className = "legend";
+  const ramp = rampColors();
+  legend.innerHTML = `<span class="item">0 %</span>` +
+    ramp.map((c) => `<span class="swatch box" style="background:${c};width:18px"></span>`).join("") +
+    `<span class="item">${Math.round(pmax * 100)} %</span>
+     <span class="item" style="margin-left:auto">Schwelle: ${esc(currentThreshold)} ≥ ${CONFIG.thresholds[currentThreshold]} kn</span>`;
+  body.append(legend);
+}
+
+/* ---------- Statistik: Monatsbalken + Windrose ---------- */
+function renderStats() {
+  const body = $("statsBody");
+  if (!statsData) return;
+  const s = statsData[currentThreshold];
+  body.className = "";
+  body.innerHTML = "";
+
+  /* Monatsbalken: erwartete Kite-Tage mit Min/Max-Spanne */
+  const W = 860, H = 220, padL = 30, padR = 8, padT = 12, padB = 26;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const maxY = Math.max(4, ...s.months.map((m) => m.max)) * 1.1;
+  const y = (v) => padT + ih - (v / maxY) * ih;
+  const bw = iw / 12;
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": "Erwartete Kite-Tage pro Monat" });
+  for (let v = 0; v <= maxY; v += maxY > 10 ? 2 : 1) {
+    svg.append(svgEl("line", { x1: padL, x2: W - padR, y1: y(v), y2: y(v), stroke: "var(--grid)" }));
+    const t = svgEl("text", { x: padL - 5, y: y(v) + 3, "text-anchor": "end", "font-size": 10, fill: "var(--muted)" });
+    t.textContent = v;
+    svg.append(t);
+  }
+  s.months.forEach((m, i) => {
+    const cx = padL + i * bw + bw / 2;
+    const bar = svgEl("rect", {
+      x: cx - bw * 0.28, y: y(m.mean), width: bw * 0.56,
+      height: Math.max(0, y(0) - y(m.mean)), rx: 4, fill: "var(--wind)",
+    });
+    attachTooltip(bar, `<b>${MONTHS[i]}</b><br>Ø ${m.mean} Kite-Tage<br>Spanne ${m.min}–${m.max} (${m.n_years} Jahre, σ ${m.std})`);
+    svg.append(bar);
+    // Min/Max-Spanne
+    svg.append(svgEl("line", { x1: cx, x2: cx, y1: y(m.min), y2: y(m.max), stroke: "var(--ink-2)", "stroke-width": 1.5 }));
+    svg.append(svgEl("line", { x1: cx - 4, x2: cx + 4, y1: y(m.max), y2: y(m.max), stroke: "var(--ink-2)", "stroke-width": 1.5 }));
+    svg.append(svgEl("line", { x1: cx - 4, x2: cx + 4, y1: y(m.min), y2: y(m.min), stroke: "var(--ink-2)", "stroke-width": 1.5 }));
+    const t = svgEl("text", { x: cx, y: H - 8, "text-anchor": "middle", "font-size": 10, fill: "var(--ink-2)" });
+    t.textContent = MONTHS[i];
+    svg.append(t);
+  });
+  svg.append(svgEl("line", { x1: padL, x2: W - padR, y1: y(0), y2: y(0), stroke: "var(--axis)" }));
+
+  const h3a = document.createElement("h2");
+  h3a.textContent = "Erwartete Kite-Tage pro Monat (Ø mit Min–Max der Jahre)";
+  h3a.style.fontSize = "0.9rem";
+  body.append(h3a, svg);
+
+  /* Windrose der Kite-Fenster */
+  const total = s.windrose.reduce((a, b) => a + b, 0) || 1;
+  const R = 120, cx0 = 150, cy0 = 140, SW2 = 300, SH = 285;
+  const rose = svgEl("svg", { viewBox: `0 0 ${SW2} ${SH}`, role: "img",
+    "aria-label": "Windrose der Kite-Fenster", style: "max-width:340px;margin:0 auto" });
+  const maxShare = Math.max(...s.windrose) / total || 1;
+  [0.25, 0.5, 0.75, 1].forEach((f) => {
+    rose.append(svgEl("circle", { cx: cx0, cy: cy0, r: R * f, fill: "none", stroke: "var(--grid)" }));
+  });
+  s.windrose.forEach((count, i) => {
+    const share = count / total;
+    const r = R * Math.sqrt(share / maxShare); // Fläche ∝ Anteil
+    if (r <= 0) return;
+    const a0 = ((i * 22.5 - 11.25 + 1.5) - 90) * Math.PI / 180;
+    const a1 = ((i * 22.5 + 11.25 - 1.5) - 90) * Math.PI / 180;
+    const p = `M${cx0},${cy0} L${cx0 + r * Math.cos(a0)},${cy0 + r * Math.sin(a0)} ` +
+      `A${r},${r} 0 0 1 ${cx0 + r * Math.cos(a1)},${cy0 + r * Math.sin(a1)} Z`;
+    const wedge = svgEl("path", { d: p, fill: "var(--wind)", stroke: "var(--surface)", "stroke-width": 1.5 });
+    attachTooltip(wedge, `<b>${SECTORS[i]}</b><br>${(share * 100).toFixed(1)} % der Kite-Fenster-Stunden`);
+    rose.append(wedge);
+  });
+  [["N", cx0, cy0 - R - 8], ["O", cx0 + R + 12, cy0 + 3], ["S", cx0, cy0 + R + 16], ["W", cx0 - R - 12, cy0 + 3]]
+    .forEach(([label, tx, ty]) => {
+      const t = svgEl("text", { x: tx, y: ty, "text-anchor": "middle", "font-size": 11, fill: "var(--ink-2)" });
+      t.textContent = label;
+      rose.append(t);
+    });
+
+  const h3b = document.createElement("h2");
+  h3b.textContent = "Windrose der Kite-Fenster (woher der brauchbare Wind kommt)";
+  h3b.style.fontSize = "0.9rem";
+  h3b.style.marginTop = "18px";
+  body.append(h3b, rose);
+
+  const facts = document.createElement("p");
+  facts.className = "hint";
+  const v = statsData.validation;
+  facts.innerHTML =
+    `${s.n_kite_days} Kite-Tage in ${s.n_windows} Fenstern seit ${esc(statsData.meta.period.split("–")[0].trim())}, ` +
+    `Ø Fensterlänge ${s.mean_window_hours} h, ${(s.gusty_share * 100).toFixed(0)} % der Fenster böig (Faktor &gt; ${statsData.meta.gusty_factor}).` +
+    (v && v.correction_factor ? `<br>Validierung ${esc(v.station)} ${esc(v.period)}: Messung/Modell = ${v.correction_factor} (bei Wind ≥ 8 kn: ${v.correction_factor_windy ?? "–"}).` : "");
+  body.append(facts);
+}
+
+/* ---------- Statistik laden & Umschalter ---------- */
+async function loadStats() {
+  try {
+    const res = await fetch(CONFIG.statsFile, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    statsData = await res.json();
+    $("metaInfo").textContent = `Statistik: ${statsData.meta.period}, erstellt ${statsData.meta.generated_at.slice(0, 10)}`;
+    renderCalendar();
+    renderStats();
+  } catch (e) {
+    const msg = `stats.json fehlt oder ist unlesbar (${e.message}) — bitte einmal "python analyse.py" ausführen.`;
+    $("calendarBody").className = "error";
+    $("calendarBody").textContent = msg;
+    $("statsBody").className = "error";
+    $("statsBody").textContent = msg;
+  }
+}
+
+$("thresholdToggle").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  currentThreshold = btn.dataset.th;
+  for (const b of $("thresholdToggle").children) b.classList.toggle("active", b === btn);
+  renderForecast();
+  if (statsData) { renderCalendar(); renderStats(); }
+});
+
+loadNow();
+loadForecast();
+loadStats();
+setInterval(loadNow, 10 * 60 * 1000); // Live-Werte alle 10 Minuten aktualisieren
+</script>
+</body>
+</html>
