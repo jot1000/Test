@@ -20,6 +20,8 @@
   --warn: #fab219;
   --window-fill: rgba(95,178,84,0.28);   /* Kite-Fenster-Schattierung */
   --night-fill: rgba(137,135,129,0.14);
+  --lake: rgba(42,120,214,0.12);         /* Seefläche der Grundrisskarte */
+  --lake-stroke: rgba(42,120,214,0.45);
   /* sequenzielle Grün-Rampe (Heatmap), 0 -> hoch */
   --ramp: #f0efec,#d7ead0,#b0d8a4,#88c67b,#5fb254,#369c31,#157c15,#045d04;
 }
@@ -37,6 +39,8 @@
     --gust: #d95926;
     --window-fill: rgba(93,157,66,0.30);
     --night-fill: rgba(137,135,129,0.12);
+    --lake: rgba(57,135,229,0.16);
+    --lake-stroke: rgba(57,135,229,0.55);
     --ramp: #242423,#2b431f,#365827,#426e2f,#4f8538,#5d9d42,#6cb64d,#7cd059;
   }
 }
@@ -542,39 +546,21 @@ function renderStats() {
   h3a.style.fontSize = "0.9rem";
   body.append(h3a, svg);
 
-  /* Windrose der Kite-Fenster */
-  const total = s.windrose.reduce((a, b) => a + b, 0) || 1;
-  const R = 120, cx0 = 150, cy0 = 140, SW2 = 300, SH = 285;
-  const rose = svgEl("svg", { viewBox: `0 0 ${SW2} ${SH}`, role: "img",
-    "aria-label": "Windrose der Kite-Fenster", style: "max-width:340px;margin:0 auto" });
-  const maxShare = Math.max(...s.windrose) / total || 1;
-  [0.25, 0.5, 0.75, 1].forEach((f) => {
-    rose.append(svgEl("circle", { cx: cx0, cy: cy0, r: R * f, fill: "none", stroke: "var(--grid)" }));
-  });
-  s.windrose.forEach((count, i) => {
-    const share = count / total;
-    const r = R * Math.sqrt(share / maxShare); // Fläche ∝ Anteil
-    if (r <= 0) return;
-    const a0 = ((i * 22.5 - 11.25 + 1.5) - 90) * Math.PI / 180;
-    const a1 = ((i * 22.5 + 11.25 - 1.5) - 90) * Math.PI / 180;
-    const p = `M${cx0},${cy0} L${cx0 + r * Math.cos(a0)},${cy0 + r * Math.sin(a0)} ` +
-      `A${r},${r} 0 0 1 ${cx0 + r * Math.cos(a1)},${cy0 + r * Math.sin(a1)} Z`;
-    const wedge = svgEl("path", { d: p, fill: "var(--wind)", stroke: "var(--surface)", "stroke-width": 1.5 });
-    attachTooltip(wedge, `<b>${SECTORS[i]}</b><br>${(share * 100).toFixed(1)} % der Kite-Fenster-Stunden`);
-    rose.append(wedge);
-  });
-  [["N", cx0, cy0 - R - 8], ["O", cx0 + R + 12, cy0 + 3], ["S", cx0, cy0 + R + 16], ["W", cx0 - R - 12, cy0 + 3]]
-    .forEach(([label, tx, ty]) => {
-      const t = svgEl("text", { x: tx, y: ty, "text-anchor": "middle", "font-size": 11, fill: "var(--ink-2)" });
-      t.textContent = label;
-      rose.append(t);
-    });
+  /* Windrose der Kite-Fenster auf der Seekarte */
+  const rose = buildWindroseMap(s);
 
   const h3b = document.createElement("h2");
-  h3b.textContent = "Windrose der Kite-Fenster (woher der brauchbare Wind kommt)";
+  h3b.textContent = "Windrose der Kite-Fenster am Spot Sempach (woher der brauchbare Wind kommt)";
   h3b.style.fontSize = "0.9rem";
   h3b.style.marginTop = "18px";
   body.append(h3b, rose);
+
+  const roseLegend = document.createElement("div");
+  roseLegend.className = "legend";
+  roseLegend.innerHTML = `
+    <span class="item"><span class="swatch box" style="background:var(--wind);opacity:.6"></span>Anteil Kite-Fenster-Stunden</span>
+    <span class="item"><span class="swatch" style="background:var(--warn);height:2px;border-bottom:2px dashed var(--warn);background:none;width:16px"></span>⚠️ ablandige Sektoren (Wind vom Ufer weg)</span>`;
+  body.append(roseLegend);
 
   const facts = document.createElement("p");
   facts.className = "hint";
@@ -584,6 +570,154 @@ function renderStats() {
     `Ø Fensterlänge ${s.mean_window_hours} h, ${(s.gusty_share * 100).toFixed(0)} % der Fenster böig (Faktor &gt; ${statsData.meta.gusty_factor}).` +
     (v && v.correction_factor ? `<br>Validierung ${esc(v.station)} ${esc(v.period)}: Messung/Modell = ${v.correction_factor} (bei Wind ≥ 8 kn: ${v.correction_factor_windy ?? "–"}).` : "");
   body.append(facts);
+}
+
+/* ---------- Windrose auf Seekarte ----------
+   Stilisierter Grundriss des Sempachersees (WGS84-Punkte, von Hand
+   digitalisiert — Massstab stimmt, Uferlinie ist vereinfacht). Die
+   Windrose sitzt am Kite-Spot Sempach (Südostufer); die Messstation
+   Egolzwil liegt ~15 km westlich ausserhalb der Karte. */
+const LAKE_OUTLINE = [
+  // Nordostufer, von Sursee (NW) nach Sempach (SO)
+  [47.1720, 8.0980], [47.1730, 8.1070], [47.1705, 8.1170], [47.1665, 8.1280],
+  [47.1620, 8.1390], [47.1570, 8.1500], [47.1520, 8.1610], [47.1470, 8.1710],
+  [47.1425, 8.1800], [47.1385, 8.1875], [47.1350, 8.1930], [47.1320, 8.1935],
+  // Südwestufer, zurück nach Sursee
+  [47.1295, 8.1870], [47.1290, 8.1770], [47.1300, 8.1660], [47.1315, 8.1550],
+  [47.1330, 8.1440], [47.1350, 8.1330], [47.1385, 8.1230], [47.1430, 8.1140],
+  [47.1490, 8.1060], [47.1560, 8.0995], [47.1640, 8.0950], [47.1700, 8.0945],
+];
+const MAP_TOWNS = [
+  { name: "Sursee", lat: 47.1760, lon: 8.0980 },
+  { name: "Nottwil", lat: 47.1320, lon: 8.1260 },
+  { name: "Eich", lat: 47.1590, lon: 8.1490 },
+  { name: "Sempach", lat: 47.1290, lon: 8.1985 },
+];
+/* Anströmung pro Sektor am Spot Sempach (Südostufer, Blick nach NW über
+   den See). Erste Einschätzung — bei Bedarf hier anpassen.
+   auf = auflandig (Wind kommt übers Wasser), side = sideshore,
+   ab = ablandig (Wind bläst vom Ufer auf den See hinaus -> Vorsicht). */
+const SPOT_EXPOSURE = ["side","ab","ab","ab","ab","ab","ab","ab","ab","ab","side","side","auf","auf","auf","auf"];
+const EXPOSURE_TEXT = {
+  auf: "auflandig — Wind kommt übers Wasser",
+  side: "sideshore — Wind läuft dem Ufer entlang",
+  ab: "⚠️ ablandig — Wind bläst vom Ufer weg",
+};
+
+function buildWindroseMap(s) {
+  // Kartenausschnitt (N/S/W/O-Grenzen) und Projektion: km-treu um 47.15° N
+  const LAT_N = 47.1815, LAT_S = 47.1060, LON_W = 8.0760, LON_E = 8.2340;
+  const KMX = 111.32 * Math.cos((47.15 * Math.PI) / 180), KMY = 110.57, PXK = 40;
+  const W = (LON_E - LON_W) * KMX * PXK, H = (LAT_N - LAT_S) * KMY * PXK;
+  const px = (lat, lon) => [(lon - LON_W) * KMX * PXK, (LAT_N - lat) * KMY * PXK];
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${W.toFixed(0)} ${H.toFixed(0)}`, role: "img",
+    "aria-label": "Windrose der Kite-Fenster am Spot Sempach mit Seegrundriss",
+    style: "max-width:640px;margin:0 auto" });
+
+  // Seefläche
+  const outline = LAKE_OUTLINE.map(([la, lo], i) => {
+    const [x, y] = px(la, lo);
+    return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join("") + "Z";
+  svg.append(svgEl("path", { d: outline, fill: "var(--lake)", stroke: "var(--lake-stroke)",
+    "stroke-width": 1.5, "stroke-linejoin": "round" }));
+
+  // Ortsnamen & Seename
+  for (const t of MAP_TOWNS) {
+    const [x, y] = px(t.lat, t.lon);
+    svg.append(svgEl("circle", { cx: x, cy: y, r: 2, fill: "var(--muted)" }));
+    const label = svgEl("text", { x: x + 5, y: y + 3, "font-size": 10, fill: "var(--ink-2)" });
+    label.textContent = t.name;
+    svg.append(label);
+  }
+  const [lx, ly] = px(47.1520, 8.1280);
+  const lakeName = svgEl("text", { x: lx, y: ly, "font-size": 11, fill: "var(--lake-stroke)",
+    "font-style": "italic", "text-anchor": "middle", transform: `rotate(31 ${lx} ${ly})` });
+  lakeName.textContent = "Sempachersee";
+  svg.append(lakeName);
+
+  // Windrose am Spot
+  const [cx, cy] = px(CONFIG.lat, CONFIG.lon);
+  const total = s.windrose.reduce((a, b) => a + b, 0) || 1;
+  const maxShare = Math.max(...s.windrose) / total || 1;
+  const R = 2.6 * PXK; // max. Wedge-Radius ≙ 2.6 km
+
+  [0.5, 1].forEach((f) => {
+    svg.append(svgEl("circle", { cx, cy, r: R * f, fill: "none",
+      stroke: "var(--grid)", "stroke-dasharray": "3 3" }));
+  });
+  const ringLabel = svgEl("text", { x: cx - 8, y: cy - R - 4, "text-anchor": "end",
+    "font-size": 8.5, fill: "var(--muted)" });
+  ringLabel.textContent = `Aussenring = ${(maxShare * 100).toFixed(0)} % der Fensterstunden`;
+  svg.append(ringLabel);
+  [["N", 0, -1], ["O", 1, 0], ["S", 0, 1], ["W", -1, 0]].forEach(([ltr, dx, dy]) => {
+    const t = svgEl("text", { x: cx + dx * (R + 18), y: cy + dy * (R + 18) + 3,
+      "text-anchor": "middle", "font-size": 10, fill: "var(--muted)" });
+    t.textContent = ltr;
+    svg.append(t);
+  });
+  s.windrose.forEach((count, i) => {
+    const share = count / total;
+    const r = R * Math.sqrt(share / maxShare); // Fläche ∝ Anteil
+    if (r <= 0) return;
+    const a0 = ((i * 22.5 - 11.25 + 1.5) - 90) * Math.PI / 180;
+    const a1 = ((i * 22.5 + 11.25 - 1.5) - 90) * Math.PI / 180;
+    const d = `M${cx},${cy} L${cx + r * Math.cos(a0)},${cy + r * Math.sin(a0)} ` +
+      `A${r},${r} 0 0 1 ${cx + r * Math.cos(a1)},${cy + r * Math.sin(a1)} Z`;
+    const wedge = svgEl("path", { d, fill: "var(--wind)", "fill-opacity": 0.55,
+      stroke: "var(--surface)", "stroke-width": 1.2 });
+    attachTooltip(wedge, `<b>${SECTORS[i]}</b> · ${(share * 100).toFixed(1)} % der Kite-Fenster-Stunden<br>` +
+      esc(EXPOSURE_TEXT[SPOT_EXPOSURE[i]]));
+    svg.append(wedge);
+  });
+
+  // Ablandige Sektoren als gestrichelter Warnbogen markieren
+  let abFrom = null, abTo = null;
+  SPOT_EXPOSURE.forEach((e, i) => {
+    if (e === "ab") { if (abFrom === null) abFrom = i; abTo = i; }
+  });
+  if (abFrom !== null) {
+    const rA = R + 7;
+    const b0 = (abFrom * 22.5 - 11.25 - 90) * Math.PI / 180;
+    const b1 = (abTo * 22.5 + 11.25 - 90) * Math.PI / 180;
+    const large = (abTo - abFrom + 1) * 22.5 > 180 ? 1 : 0;
+    svg.append(svgEl("path", {
+      d: `M${cx + rA * Math.cos(b0)},${cy + rA * Math.sin(b0)} ` +
+        `A${rA},${rA} 0 ${large} 1 ${cx + rA * Math.cos(b1)},${cy + rA * Math.sin(b1)}`,
+      fill: "none", stroke: "var(--warn)", "stroke-width": 2, "stroke-dasharray": "5 4",
+    }));
+  }
+
+  // Spot-Markierung
+  svg.append(svgEl("circle", { cx, cy, r: 4, fill: "var(--surface)", stroke: "var(--ink)", "stroke-width": 1.5 }));
+  const spotLabel = svgEl("text", { x: cx + 8, y: cy - 6, "font-size": 10, "font-weight": 600, fill: "var(--ink)" });
+  spotLabel.textContent = "Spot";
+  svg.append(spotLabel);
+
+  // Hinweis auf die Messstation Egolzwil (liegt ~15 km westlich, ausserhalb)
+  const [, eyRaw] = px(47.1790, 8.0760);
+  const ey = Math.max(14, eyRaw);
+  svg.append(svgEl("path", { d: `M12,${ey} l8,-4 v8 Z`, fill: "var(--muted)" }));
+  svg.append(svgEl("line", { x1: 22, x2: 58, y1: ey, y2: ey, stroke: "var(--muted)", "stroke-dasharray": "3 3" }));
+  const st = svgEl("text", { x: 62, y: ey + 3, "font-size": 9, fill: "var(--muted)" });
+  st.textContent = "Messstation Egolzwil ≈ 15 km (Live-Daten)";
+  svg.append(st);
+
+  // Nordpfeil & Massstab
+  svg.append(svgEl("line", { x1: W - 24, x2: W - 24, y1: 30, y2: 12, stroke: "var(--ink-2)", "stroke-width": 1.5 }));
+  svg.append(svgEl("path", { d: `M${W - 24},10 l-4,7 h8 Z`, fill: "var(--ink-2)" }));
+  const nT = svgEl("text", { x: W - 24, y: 42, "text-anchor": "middle", "font-size": 10, fill: "var(--ink-2)" });
+  nT.textContent = "N";
+  svg.append(nT);
+  const sy = H - 14;
+  svg.append(svgEl("line", { x1: 14, x2: 14 + 2 * PXK, y1: sy, y2: sy, stroke: "var(--ink-2)", "stroke-width": 2 }));
+  [0, 2 * PXK].forEach((dx) => svg.append(svgEl("line", { x1: 14 + dx, x2: 14 + dx, y1: sy - 4, y2: sy + 4, stroke: "var(--ink-2)" })));
+  const sT = svgEl("text", { x: 14 + PXK, y: sy - 7, "text-anchor": "middle", "font-size": 9, fill: "var(--ink-2)" });
+  sT.textContent = "2 km";
+  svg.append(sT);
+
+  return svg;
 }
 
 /* ---------- Statistik laden & Umschalter ---------- */
