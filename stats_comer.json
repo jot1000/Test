@@ -8,7 +8,7 @@
   "min_window_hours": 2,
   "gusty_factor": 2.0,
   "unit": "kn",
-  "generated_at": "2026-07-11T12:52:25",
+  "generated_at": "2026-07-11T12:56:11",
   "source": "Open-Meteo Historical Weather API (Modell)"
  },
  "thresholds": {
