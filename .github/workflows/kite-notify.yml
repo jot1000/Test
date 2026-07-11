@@ -25,7 +25,9 @@ jobs:
           DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            python notify.py
+            # Manueller Start: immer eine Nachricht senden (Bot-Test),
+            # auch wenn kein Kite-Fenster prognostiziert ist
+            python notify.py --always
           else
             python notify.py --guard-hour 6
           fi
