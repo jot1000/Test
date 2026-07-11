@@ -1,0 +1,24 @@
+name: ARPA-Sondierung (Live-Daten Comersee)
+
+# Nur manuell: listet ARPA-Lombardia-Windsensoren rund um den Como-Spot
+# und deren jüngste Messwerte im Log auf. Ergebnis dient der Entscheidung,
+# ob eine Station als Live-Quelle ins Dashboard eingebaut wird.
+on:
+  workflow_dispatch:
+    inputs:
+      radius:
+        description: "Suchradius in km"
+        default: "25"
+        required: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Windsensoren suchen und jüngste Werte abfragen
+        run: python arpa_probe.py --radius "${{ inputs.radius }}"
