@@ -1,0 +1,6 @@
+# Daten-Cache der Analyse (wird bei Bedarf neu geladen)
+data/cache/
+
+__pycache__/
+*.pyc
+.venv/

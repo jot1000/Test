@@ -1,0 +1,31 @@
+name: Kite-Benachrichtigung
+
+on:
+  schedule:
+    # 06:30 Europe/Zurich — GitHub-Cron läuft in UTC, deshalb zwei Einträge
+    # (Sommerzeit: 04:30 UTC, Winterzeit: 05:30 UTC). notify.py --guard-hour 6
+    # stellt sicher, dass nur der jeweils passende Lauf wirklich sendet.
+    - cron: "30 4 * * *"
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Prognose prüfen und ggf. Telegram senden
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python notify.py
+          else
+            python notify.py --guard-hour 6
+          fi
