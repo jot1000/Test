@@ -169,6 +169,16 @@ tests/         Unit-Tests der Kernlogik
 - Der Korrekturfaktor Messung/Modell steht in `stats.json → validation` und
   wird bewusst nur dokumentiert, nicht automatisch angewendet.
 
+## ARPA-Sondierung (Live-Daten Comersee)
+
+Für Italien gibt es keine freie Messstation wie Egolzwil. Möglicher
+Ersatz: **ARPA Lombardia Open Data** (dati.lombardia.it, Socrata-API,
+kein Key nötig). Der manuelle Workflow **„ARPA-Sondierung"** (Actions →
+Run workflow) listet alle Windsensoren rund um den Como-Spot samt
+jüngstem Messwert im Log auf (`arpa_probe.py`). Taugt eine Station
+(nah, aktuell, Geschwindigkeit + Richtung vorhanden), kann sie als
+Live-Quelle in den Comersee-Reiter eingebaut werden.
+
 ## Offene Punkte / später
 
 - Spot-Ausrichtung: erste Version umgesetzt (Sektor-Klassifikation
