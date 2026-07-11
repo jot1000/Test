@@ -1,0 +1,17 @@
+name: Wind-Debug Comersee
+
+# Temporäre Diagnose: vergleicht Open-Meteo-Quellen für den Como-Spot
+# (Archiv-Reanalyse vs. hochaufgelöste ICON-Modellarchive).
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python wind_debug.py
