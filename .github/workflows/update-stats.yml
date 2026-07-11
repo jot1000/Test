@@ -34,4 +34,6 @@ jobs:
           git add stats.json stats_comer.json
           git diff --cached --quiet && echo "Keine Änderung" && exit 0
           git commit -m "Statistik aktualisieren ($(date -u +%F))"
+          # Falls main inzwischen weitergewandert ist: einrebasen statt scheitern
+          git pull --rebase origin main
           git push
