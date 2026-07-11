@@ -56,9 +56,14 @@ def _get_json(url: str, params: dict, retries: int = 4) -> dict:
     raise RuntimeError("unreachable")
 
 
-def _cache_paths(spot_key: str, year: int) -> tuple[Path, Path]:
-    # Sempach behält die alten Dateinamen, damit bestehende Caches gültig bleiben
-    prefix = "openmeteo" if spot_key == "sempach" else f"openmeteo_{spot_key}"
+def _cache_paths(spot_key: str, spot: dict, year: int) -> tuple[Path, Path]:
+    # Sempach behält die alten Dateinamen, damit bestehende Caches gültig
+    # bleiben; sonst gehört das Quellmodell in den Namen, damit ein
+    # Quellenwechsel alte Cache-Dateien automatisch ungültig macht.
+    if spot_key == "sempach":
+        prefix = "openmeteo"
+    else:
+        prefix = f"openmeteo_{spot_key}_{spot.get('history_models') or 'best'}"
     return (
         CACHE / f"{prefix}_hourly_{year}.parquet",
         CACHE / f"{prefix}_daily_{year}.parquet",
@@ -90,7 +95,7 @@ def fetch_openmeteo_year(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Stunden- und Tageswerte (Sonnenauf-/-untergang) eines Jahres,
     Wind direkt in Knoten, Zeiten lokal (Europe/Zurich)."""
-    hourly_path, daily_path = _cache_paths(spot_key, year)
+    hourly_path, daily_path = _cache_paths(spot_key, spot, year)
     cached_h, cached_d = _read_cache(hourly_path), _read_cache(daily_path)
     is_past_year = year < today.year
     if cached_h is not None and cached_d is not None:
@@ -105,19 +110,19 @@ def fetch_openmeteo_year(
     if end_date < dt.date(year, 1, 1):
         return pd.DataFrame(), pd.DataFrame()
     log.info("Lade Open-Meteo %s bis %s", start, end_date)
-    data = _get_json(
-        config.OPEN_METEO_ARCHIVE_URL,
-        {
-            "latitude": spot["latitude"],
-            "longitude": spot["longitude"],
-            "start_date": start,
-            "end_date": end_date.isoformat(),
-            "hourly": "wind_speed_10m,wind_gusts_10m,wind_direction_10m",
-            "daily": "sunrise,sunset",
-            "timezone": config.TIMEZONE,
-            "wind_speed_unit": "kn",
-        },
-    )
+    params = {
+        "latitude": spot["latitude"],
+        "longitude": spot["longitude"],
+        "start_date": start,
+        "end_date": end_date.isoformat(),
+        "hourly": "wind_speed_10m,wind_gusts_10m,wind_direction_10m",
+        "daily": "sunrise,sunset",
+        "timezone": config.TIMEZONE,
+        "wind_speed_unit": "kn",
+    }
+    if spot.get("history_models"):
+        params["models"] = spot["history_models"]
+    data = _get_json(spot["history_url"], params)
     h = data["hourly"]
     hourly = pd.DataFrame(
         {
@@ -127,6 +132,9 @@ def fetch_openmeteo_year(
             "dir_deg": h["wind_direction_10m"],
         }
     )
+    # Modellarchive liefern vor Archivbeginn Null-Werte -> verwerfen, damit
+    # die Monats-Abdeckung (covered months) nicht verfälscht wird
+    hourly = hourly.dropna(subset=["speed_kn"]).reset_index(drop=True)
     d = data["daily"]
     daily = pd.DataFrame(
         {
@@ -355,7 +363,8 @@ def validate_against_station(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--spot", choices=sorted(config.SPOTS), default="sempach")
-    parser.add_argument("--start-year", type=int, default=config.HISTORY_START_YEAR)
+    parser.add_argument("--start-year", type=int, default=None,
+                        help="Startjahr (Standard: history_start des Spots)")
     parser.add_argument("--output", default=None,
                         help="Zieldatei (Standard: stats_file des Spots)")
     parser.add_argument("--skip-validation", action="store_true")
@@ -367,7 +376,8 @@ def main() -> None:
     log.info("Spot: %s", spot["name"])
 
     today = dt.date.today()
-    hourly, daily = load_history(args.spot, spot, args.start_year, today)
+    start_year = args.start_year or spot["history_start"]
+    hourly, daily = load_history(args.spot, spot, start_year, today)
     daylight = daylight_table(daily)
     hours = build_hours(hourly, daylight)
     log.info("%d Stundenwerte von %s bis %s", len(hours), hours[0].time, hours[-1].time)
@@ -384,7 +394,7 @@ def main() -> None:
             "gusty_factor": config.GUSTY_FACTOR,
             "unit": "kn",
             "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
-            "source": "Open-Meteo Historical Weather API (Modell)"
+            "source": spot["history_source"]
             + (f", MeteoSwiss OGD {station} (Validierung)" if station else ""),
         },
         "thresholds": config.THRESHOLDS_KN,

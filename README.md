@@ -54,10 +54,18 @@ python analyse.py --skip-validation
 
 Die Spots sind in `config.py` (`SPOTS`) definiert. Der **Comersee**-Spot
 liegt in der Seemitte zwischen Domaso und Colico (Boot-Revier, Alto
-Lario); für Italien gibt es keine freie Messstation, deshalb entfällt
-dort Validierung und Live-Messung — die «Jetzt»-Karte zeigt die aktuelle
-Modellstunde (klar beschriftet). Telegram-Benachrichtigungen gibt es nur
-für den Sempachersee.
+Lario). Telegram-Benachrichtigungen gibt es nur für den Sempachersee.
+
+**Wichtig — unterschiedliche historische Quellen pro Spot:** Für den
+Sempachersee (flaches Mittelland) reicht die ERA5-Reanalyse der
+Standard-Archiv-API und liefert 20+ Jahre. Am Comersee löst ERA5 die
+thermischen Talwinde (Breva/Tivano) im engen Alpental **nicht** auf —
+verifiziert: 0 Kite-Tage in 20 Jahren, mittlerer Wind 1.9 kn. Der
+Comersee nutzt darum das **ICON-D2-Modellarchiv** (2.2 km Raster,
+Historical-Forecast-API), das die Thermik abbildet, aber erst ab ~2023
+verfügbar ist. Die Como-Statistik ist also eine kurze Klimatologie —
+und vermutlich weiterhin eher konservativ (auch 2.2 km glätten die
+Seemitte-Breva noch).
 
 Lädt die Stundendaten jahresweise und cached sie als Parquet unter
 `data/cache/` (beim nächsten Lauf kein erneuter Download; das laufende Jahr
@@ -169,15 +177,22 @@ tests/         Unit-Tests der Kernlogik
 - Der Korrekturfaktor Messung/Modell steht in `stats.json → validation` und
   wird bewusst nur dokumentiert, nicht automatisch angewendet.
 
-## ARPA-Sondierung (Live-Daten Comersee)
+## ARPA Lombardia (Live-Daten Comersee)
 
-Für Italien gibt es keine freie Messstation wie Egolzwil. Möglicher
-Ersatz: **ARPA Lombardia Open Data** (dati.lombardia.it, Socrata-API,
-kein Key nötig). Der manuelle Workflow **„ARPA-Sondierung"** (Actions →
-Run workflow) listet alle Windsensoren rund um den Como-Spot samt
-jüngstem Messwert im Log auf (`arpa_probe.py`). Taugt eine Station
-(nah, aktuell, Geschwindigkeit + Richtung vorhanden), kann sie als
-Live-Quelle in den Comersee-Reiter eingebaut werden.
+Die «Jetzt»-Karte des Comersee-Reiters nutzt **ARPA Lombardia Open
+Data** (dati.lombardia.it, Socrata-API, kein Key): Station **„Colico
+v.La Madoneta"**, ~3 km vom Spot, Sensoren 19109 (Windgeschwindigkeit,
+m/s) und 6008 (Richtung). Ist der jüngste Messwert älter als ~2.5 h
+oder die API nicht erreichbar, fällt die Anzeige automatisch auf die
+aktuelle ICON-Modellstunde zurück (klar beschriftet). Böen misst die
+Station nicht.
+
+Der manuelle Workflow **„ARPA-Sondierung"** (`arpa_probe.py`) listet
+bei Bedarf alle Windsensoren rund um den Spot samt jüngstem Messwert —
+nützlich, falls die Station ausfällt und ein Ersatz gesucht wird.
+Hinweis: Das Sensor-Register enthält vereinzelt falsche Koordinaten
+(z. B. tauchen Stationen aus der Po-Ebene scheinbar am See auf) —
+Stationsnamen gegenprüfen.
 
 ## Offene Punkte / später
 
