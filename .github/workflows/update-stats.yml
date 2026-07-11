@@ -23,13 +23,15 @@ jobs:
           restore-keys: openmeteo-cache-
       - run: pip install -r requirements.txt
       - run: python -m unittest discover -s tests
-      - name: Analyse laufen lassen
-        run: python analyse.py
-      - name: stats.json committen
+      - name: Analyse Sempachersee
+        run: python analyse.py --spot sempach
+      - name: Analyse Comersee
+        run: python analyse.py --spot comer
+      - name: Statistikdateien committen
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add stats.json
+          git add stats.json stats_comer.json
           git diff --cached --quiet && echo "Keine Änderung" && exit 0
-          git commit -m "stats.json aktualisieren ($(date -u +%F))"
+          git commit -m "Statistik aktualisieren ($(date -u +%F))"
           git push

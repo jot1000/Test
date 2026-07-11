@@ -7,7 +7,8 @@ MeteoSwiss-Messstation Egolzwil und exportiert alles als stats.json
 für das Dashboard.
 
 Aufruf:
-    python analyse.py                  # komplette Analyse inkl. Validierung
+    python analyse.py                  # Sempachersee inkl. Validierung
+    python analyse.py --spot comer     # Comersee (ohne Validierung)
     python analyse.py --skip-validation
     python analyse.py --start-year 2010 --output stats.json
 """
@@ -55,10 +56,12 @@ def _get_json(url: str, params: dict, retries: int = 4) -> dict:
     raise RuntimeError("unreachable")
 
 
-def _cache_paths(year: int) -> tuple[Path, Path]:
+def _cache_paths(spot_key: str, year: int) -> tuple[Path, Path]:
+    # Sempach behält die alten Dateinamen, damit bestehende Caches gültig bleiben
+    prefix = "openmeteo" if spot_key == "sempach" else f"openmeteo_{spot_key}"
     return (
-        CACHE / f"openmeteo_hourly_{year}.parquet",
-        CACHE / f"openmeteo_daily_{year}.parquet",
+        CACHE / f"{prefix}_hourly_{year}.parquet",
+        CACHE / f"{prefix}_daily_{year}.parquet",
     )
 
 
@@ -82,10 +85,12 @@ def _write_cache(df: pd.DataFrame, path: Path) -> None:
         df.to_csv(path.with_suffix(".csv"), index=False)
 
 
-def fetch_openmeteo_year(year: int, today: dt.date) -> tuple[pd.DataFrame, pd.DataFrame]:
+def fetch_openmeteo_year(
+    spot_key: str, spot: dict, year: int, today: dt.date
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Stunden- und Tageswerte (Sonnenauf-/-untergang) eines Jahres,
     Wind direkt in Knoten, Zeiten lokal (Europe/Zurich)."""
-    hourly_path, daily_path = _cache_paths(year)
+    hourly_path, daily_path = _cache_paths(spot_key, year)
     cached_h, cached_d = _read_cache(hourly_path), _read_cache(daily_path)
     is_past_year = year < today.year
     if cached_h is not None and cached_d is not None:
@@ -103,8 +108,8 @@ def fetch_openmeteo_year(year: int, today: dt.date) -> tuple[pd.DataFrame, pd.Da
     data = _get_json(
         config.OPEN_METEO_ARCHIVE_URL,
         {
-            "latitude": config.LATITUDE,
-            "longitude": config.LONGITUDE,
+            "latitude": spot["latitude"],
+            "longitude": spot["longitude"],
             "start_date": start,
             "end_date": end_date.isoformat(),
             "hourly": "wind_speed_10m,wind_gusts_10m,wind_direction_10m",
@@ -135,10 +140,12 @@ def fetch_openmeteo_year(year: int, today: dt.date) -> tuple[pd.DataFrame, pd.Da
     return hourly, daily
 
 
-def load_history(start_year: int, today: dt.date) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_history(
+    spot_key: str, spot: dict, start_year: int, today: dt.date
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     hs, ds = [], []
     for year in range(start_year, today.year + 1):
-        h, d = fetch_openmeteo_year(year, today)
+        h, d = fetch_openmeteo_year(spot_key, spot, year, today)
         if not h.empty:
             hs.append(h)
             ds.append(d)
@@ -285,13 +292,14 @@ def threshold_stats(hours: list[Hour], threshold_kn: float) -> dict:
 
 
 def validate_against_station(
-    model_hourly: pd.DataFrame, daylight: dict, today: dt.date
+    model_hourly: pd.DataFrame, daylight: dict, today: dt.date,
+    station_id: str = config.METEOSWISS_STATION,
 ) -> dict:
     import meteoswiss
 
     end_year = today.year - 1
     start_year = end_year - config.VALIDATION_YEARS + 1
-    station = meteoswiss.load_hourly(config.METEOSWISS_STATION, start_year, end_year)
+    station = meteoswiss.load_hourly(station_id, start_year, end_year)
 
     model = model_hourly[
         (model_hourly["time"].dt.year >= start_year)
@@ -314,7 +322,7 @@ def validate_against_station(
     )
 
     result = {
-        "station": config.METEOSWISS_STATION,
+        "station": station_id,
         "period": f"{start_year}-{end_year}",
         "n_hours_matched": int(len(merged)),
         "mean_wind_model_kn": round(mean_model, 2),
@@ -346,31 +354,38 @@ def validate_against_station(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--spot", choices=sorted(config.SPOTS), default="sempach")
     parser.add_argument("--start-year", type=int, default=config.HISTORY_START_YEAR)
-    parser.add_argument("--output", default=config.STATS_FILE)
+    parser.add_argument("--output", default=None,
+                        help="Zieldatei (Standard: stats_file des Spots)")
     parser.add_argument("--skip-validation", action="store_true")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
+    spot = config.SPOTS[args.spot]
+    output = args.output or spot["stats_file"]
+    log.info("Spot: %s", spot["name"])
+
     today = dt.date.today()
-    hourly, daily = load_history(args.start_year, today)
+    hourly, daily = load_history(args.spot, spot, args.start_year, today)
     daylight = daylight_table(daily)
     hours = build_hours(hourly, daylight)
     log.info("%d Stundenwerte von %s bis %s", len(hours), hours[0].time, hours[-1].time)
 
+    station = spot["validation_station"]
     stats = {
         "meta": {
-            "spot": config.SPOT_NAME,
-            "latitude": config.LATITUDE,
-            "longitude": config.LONGITUDE,
+            "spot": spot["name"],
+            "latitude": spot["latitude"],
+            "longitude": spot["longitude"],
             "timezone": config.TIMEZONE,
             "period": f"{hours[0].time.date()} – {hours[-1].time.date()}",
             "min_window_hours": config.MIN_WINDOW_HOURS,
             "gusty_factor": config.GUSTY_FACTOR,
             "unit": "kn",
             "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
-            "source": "Open-Meteo Historical Weather API (Modell), "
-            "MeteoSwiss OGD Egolzwil (Validierung)",
+            "source": "Open-Meteo Historical Weather API (Modell)"
+            + (f", MeteoSwiss OGD {station} (Validierung)" if station else ""),
         },
         "thresholds": config.THRESHOLDS_KN,
     }
@@ -378,17 +393,19 @@ def main() -> None:
         log.info("Auswertung Schwelle %s (>= %.0f kn)", name, thr)
         stats[name] = threshold_stats(hours, thr)
 
-    if not args.skip_validation:
+    if station and not args.skip_validation:
         try:
-            stats["validation"] = validate_against_station(hourly, daylight, today)
+            stats["validation"] = validate_against_station(
+                hourly, daylight, today, station
+            )
         except Exception as e:
-            log.warning("Validierung fehlgeschlagen (%s) — stats.json ohne Validierung", e)
+            log.warning("Validierung fehlgeschlagen (%s) — Ausgabe ohne Validierung", e)
             stats["validation"] = {"error": str(e)}
 
-    Path(args.output).write_text(
+    Path(output).write_text(
         json.dumps(stats, ensure_ascii=False, indent=1), encoding="utf-8"
     )
-    log.info("Geschrieben: %s", args.output)
+    log.info("Geschrieben: %s", output)
     for name in config.THRESHOLDS_KN:
         s = stats[name]
         log.info(

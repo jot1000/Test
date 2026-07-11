@@ -1,4 +1,4 @@
-# 🪁 Kite-Wind-Analyse & Dashboard Sempachersee
+# 🪁 Kite-Wind-Analyse & Dashboard Sempachersee (+ Comersee)
 
 Wann sind die besten Kite-Tage am Sempachersee (Spot Sempach LU)?
 Dieses Projekt beantwortet das mit historischen Winddaten seit 2005,
@@ -47,9 +47,17 @@ pip install -r requirements.txt
 ### Phase 1 — Historische Analyse
 
 ```bash
-python analyse.py                # inkl. Validierung gegen Egolzwil
+python analyse.py                # Sempachersee, inkl. Validierung gegen Egolzwil
+python analyse.py --spot comer   # Comersee -> stats_comer.json
 python analyse.py --skip-validation
 ```
+
+Die Spots sind in `config.py` (`SPOTS`) definiert. Der **Comersee**-Spot
+liegt in der Seemitte zwischen Domaso und Colico (Boot-Revier, Alto
+Lario); für Italien gibt es keine freie Messstation, deshalb entfällt
+dort Validierung und Live-Messung — die «Jetzt»-Karte zeigt die aktuelle
+Modellstunde (klar beschriftet). Telegram-Benachrichtigungen gibt es nur
+für den Sempachersee.
 
 Lädt die Stundendaten jahresweise und cached sie als Parquet unter
 `data/cache/` (beim nächsten Lauf kein erneuter Download; das laufende Jahr
@@ -73,7 +81,8 @@ python -m unittest discover -s tests
 ### Phase 2 & 3 — Kite-Kalender & Dashboard
 
 `index.html` ist eine einzelne statische Seite (Vanilla JS, mobile-first,
-deutsch). Sie zeigt:
+deutsch) mit einem **Reiter pro Revier** (Sempachersee / Comersee).
+Pro Reiter zeigt sie:
 
 - **Jetzt**: Live-Wind Egolzwil (10-Minuten-Werte) mit Ampel
   kitebar / vielleicht / nein
