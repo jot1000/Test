@@ -81,7 +81,13 @@ deutsch). Sie zeigt:
   Nachtstunden abgedunkelt
 - **Kalender**: Jahres-Heatmap (12 Monate × 31 Tage) der
   Kite-Tag-Wahrscheinlichkeit, umschaltbar foil/twintip
-- **Statistik**: Monatsbalken mit Min/Max-Spanne + Windrose
+- **Statistik**: Monatsbalken mit Min/Max-Spanne + Windrose auf einer
+  stilisierten Grundrisskarte des Sempachersees — zentriert am Spot
+  Sempach, mit Ortsnamen, Nordpfeil, Massstab, Hinweis auf die
+  Messstation Egolzwil und einer auflandig/sideshore/ablandig-
+  Klassifikation pro Windsektor (ablandige Sektoren sind mit einem
+  gestrichelten Warnbogen markiert; anpassbar über `SPOT_EXPOSURE`
+  in `index.html`)
 
 Lokal ansehen (fetch braucht einen HTTP-Server, `file://` genügt nicht):
 
@@ -156,7 +162,9 @@ tests/         Unit-Tests der Kernlogik
 
 ## Offene Punkte / später
 
-- Exakte Spot-Ausrichtung Sempach eintragen → auflandig/ablandig-Warnung.
+- Spot-Ausrichtung: erste Version umgesetzt (Sektor-Klassifikation
+  `SPOT_EXPOSURE` in `index.html`, Warnbogen in der Windrose-Karte) —
+  Feintuning mit Ortskenntnis offen.
 - Optional zweite Schwelle für Starkwind (≥ 16 kn).
 - MeteoSwiss plant individuelle API-Abfragen ab ca. Q2 2026 — könnte den
   STAC-Datei-Download vereinfachen.
