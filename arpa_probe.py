@@ -48,9 +48,22 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def get_json(dataset: str, params: dict) -> list:
-    r = requests.get(f"{BASE}/{dataset}.json", params=params, timeout=60)
+    r = requests.get(f"{BASE}/{dataset}.json", params=params, timeout=120)
     r.raise_for_status()
     return r.json()
+
+
+def latest_value_params(sensor_id: str, days: int = 7) -> dict:
+    """Jüngster Messwert eines Sensors. Wichtig: Datumsfilter, sonst
+    sortiert Socrata den kompletten Jahresdatensatz -> Timeout."""
+    import datetime as dt
+
+    since = (dt.datetime.now() - dt.timedelta(days=days)).strftime("%Y-%m-%dT00:00:00")
+    return {
+        "$where": f"idsensore='{sensor_id}' AND data >= '{since}'",
+        "$order": "data DESC",
+        "$limit": 1,
+    }
 
 
 def try_candidates(candidates: list[str], params: dict, what: str) -> tuple[str, list]:
@@ -140,14 +153,20 @@ def main() -> int:
           "(entscheidend ist die Aktualität des Zeitstempels!):\n")
     data_ds = None
     for s in wind[: args.max_probe]:
-        params = {
-            "$where": f"idsensore='{s['idsensore']}'",
-            "$order": "data DESC",
-            "$limit": 1,
-        }
+        params = latest_value_params(str(s["idsensore"]))
         try:
             if data_ds is None:
-                data_ds, rows = try_candidates(data_ids, params, "Messwerte")
+                # Kandidaten sanft durchprobieren (nicht fatal bei Fehlschlag)
+                for ds in data_ids:
+                    try:
+                        rows = get_json(ds, params)
+                        data_ds = ds
+                        break
+                    except Exception as e:
+                        print(f"[!!] Messwerte-Dataset {ds}: {e}")
+                if data_ds is None:
+                    print("Kein Messwerte-Dataset erreichbar — nur Registerdaten oben.")
+                    break
             else:
                 rows = get_json(data_ds, params)
             if rows:
@@ -156,7 +175,8 @@ def main() -> int:
                       f"{r0.get('valore')} {s['einheit']} am {r0.get('data')} "
                       f"(Status {r0.get('stato', '?')})")
             else:
-                print(f"  Sensor {s['idsensore']} ({s['station']}): keine Messwerte")
+                print(f"  Sensor {s['idsensore']} ({s['station']}): keine Messwerte "
+                      "in den letzten 7 Tagen")
         except Exception as e:
             print(f"  Sensor {s['idsensore']} ({s['station']}): Abfrage fehlgeschlagen ({e})")
 

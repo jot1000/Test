@@ -223,10 +223,17 @@ const SPOTS = {
   },
   comer: {
     label: "Comersee",
-    subtitle: "Alto Lario, Seemitte Domaso–Colico (Boot) · Prognose: ICON-CH1 · «Jetzt» = Modellwert · Einheit: Knoten",
+    subtitle: "Alto Lario, Seemitte Domaso–Colico (Boot) · Live: ARPA-Station Colico · Prognose: ICON-CH1 · Statistik ab 2023 (ICON-D2) · Einheit: Knoten",
     lat: 46.1445, lon: 9.3505,
     statsFile: "stats_comer.json",
-    live: { type: "model" }, // keine freie Messstation — aktuelle Modellstunde
+    // ARPA Lombardia Open Data, Station "Colico v.La Madoneta" (2.7 km vom
+    // Spot): Sensor 19109 = Windgeschwindigkeit (m/s), 6008 = Richtung (°).
+    // Fällt bei Fehlern/veralteten Werten auf die Modellstunde zurück.
+    live: {
+      type: "arpa", place: "Colico",
+      dataset: "647i-nhxk", speedSensor: "19109", dirSensor: "6008",
+      maxAgeMinutes: 150,
+    },
     map: {
       latN: 46.1830, latS: 46.0980, lonW: 9.2450, lonE: 9.4450,
       outline: [
@@ -348,8 +355,8 @@ function renderNowValues(speed, gust, dir, meanLabel, note) {
     </div>` + (note ? `<p class="hint" style="margin:8px 0 0">${esc(note)}</p>` : "");
 }
 
-/* «Jetzt» aus der aktuellen Modellstunde (Spots ohne Messstation) */
-function renderModelNow() {
+/* «Jetzt» aus der aktuellen Modellstunde (Fallback ohne Messstation) */
+function renderModelNow(note) {
   const body = $("nowBody");
   const fc = forecastBySpot[currentSpot];
   if (!fc) { body.className = "hint"; body.textContent = "Lade Modelldaten …"; return; }
@@ -359,12 +366,44 @@ function renderModelNow() {
   while (i + 1 < h.time.length && new Date(h.time[i + 1]).getTime() <= now) i++;
   $("nowTime").textContent = `· Modell ICON, Stunde ${h.time[i].slice(11, 16)}`;
   renderNowValues(h.wind_speed_10m[i], h.wind_gusts_10m[i], h.wind_direction_10m[i],
-    "Mittelwind (Modell)", "Modellwert, keine Messung — am Comersee gibt es keine freie Live-Station.");
+    "Mittelwind (Modell)", note || "Modellwert, keine Messung.");
+}
+
+/* «Jetzt» von einer ARPA-Lombardia-Station (dati.lombardia.it, Socrata) */
+async function loadArpaNow() {
+  const live = spot().live;
+  try {
+    const since = new Date(Date.now() - 24 * 3600e3).toISOString().slice(0, 19);
+    const where = `idsensore in('${live.speedSensor}','${live.dirSensor}') AND data >= '${since}'`;
+    const url = `https://www.dati.lombardia.it/resource/${live.dataset}.json` +
+      `?$where=${encodeURIComponent(where)}&$order=data DESC&$limit=8`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows = await res.json();
+    const latest = {};
+    for (const r of rows) {
+      const v = parseFloat(r.valore);
+      if (!latest[r.idsensore] && !isNaN(v) && v > -900) latest[r.idsensore] = r;
+    }
+    const sp = latest[live.speedSensor];
+    if (!sp) throw new Error("keine gültigen Werte");
+    const ageMin = (Date.now() - new Date(sp.data).getTime()) / 60000;
+    if (ageMin > live.maxAgeMinutes) throw new Error(`Messwert ${Math.round(ageMin)} min alt`);
+    const speed = parseFloat(sp.valore) * KN_PER_MS;
+    const dirRow = latest[live.dirSensor];
+    const dir = dirRow ? parseFloat(dirRow.valore) : null;
+    $("nowTime").textContent = `· Messstation ${live.place}, ${sp.data.slice(11, 16)}`;
+    renderNowValues(speed, null, dir, "Mittelwind (Messung)",
+      `ARPA Lombardia, Station ${live.place} (~3 km vom Spot). Böen misst die Station nicht.`);
+  } catch (e) {
+    renderModelNow(`Station ${live.place} nicht verfügbar (${e.message}) — stattdessen Modellwert.`);
+  }
 }
 
 /* «Jetzt» von der MeteoSwiss-Messstation (10-Minuten-Werte) */
 async function loadNow() {
   if (spot().live.type === "model") { renderModelNow(); return; }
+  if (spot().live.type === "arpa") { loadArpaNow(); return; }
   const body = $("nowBody");
   const live = spot().live;
   try {
@@ -433,7 +472,8 @@ async function loadForecast() {
     if (key !== currentSpot) return; // Nutzer hat inzwischen den Reiter gewechselt
     forecastData = forecastBySpot[key];
     renderForecast();
-    if (sp.live.type === "model") renderModelNow();
+    // «Jetzt» ggf. nachziehen (Modellwert bzw. ARPA-Fallback braucht die Prognose)
+    if (sp.live.type !== "meteoswiss") loadNow();
   } catch (e) {
     if (key !== currentSpot) return;
     const body = $("forecastBody");
@@ -878,6 +918,7 @@ function loadSpot() {
     loadNow();
   }
 }
+
 
 $("spotTabs").addEventListener("click", (e) => {
   const btn = e.target.closest("button");

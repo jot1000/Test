@@ -15,6 +15,12 @@ SPOTS = {
         "longitude": 8.192,
         "stats_file": "stats.json",
         "validation_station": "EGO",
+        # Flaches Mittelland: ERA5-Reanalyse (~10-25 km Raster) reicht,
+        # dafür gibt es 20+ Jahre Historie.
+        "history_url": "https://archive-api.open-meteo.com/v1/archive",
+        "history_models": None,
+        "history_start": 2005,
+        "history_source": "Open-Meteo Historical Weather API (ERA5-Reanalyse)",
     },
     "comer": {
         "name": "Comersee (Seemitte Domaso–Colico)",
@@ -22,6 +28,13 @@ SPOTS = {
         "longitude": 9.3505,
         "stats_file": "stats_comer.json",
         "validation_station": None,  # keine freie Messstation in Italien
+        # Enges Alpental: die ERA5-Reanalyse löst die thermischen Talwinde
+        # (Breva/Tivano) nicht auf (verifiziert: 0 Kite-Tage in 20 Jahren).
+        # Deshalb ICON-D2 (2.2 km) aus dem Modellarchiv — beginnt ~2023.
+        "history_url": "https://historical-forecast-api.open-meteo.com/v1/forecast",
+        "history_models": "icon_d2",
+        "history_start": 2023,
+        "history_source": "Open-Meteo Historical Forecast API (ICON-D2, 2.2 km, ab 2023)",
     },
 }
 
