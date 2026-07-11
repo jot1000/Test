@@ -12,6 +12,8 @@ Umgebungsvariablen:
 
 Aufruf:
     python notify.py                 # prüfen und ggf. senden
+    python notify.py --always        # immer senden: ohne Kite-Fenster kommt
+                                     # eine Statusnachricht (für manuelle Tests)
     python notify.py --dry-run       # nur ausgeben, nichts senden
     python notify.py --guard-hour 6  # nur ausführen, wenn es lokal 6 Uhr ist
                                      # (für den doppelten UTC-Cron in der Action)
@@ -120,9 +122,51 @@ def format_message(per_threshold: dict[str, list]) -> str:
                 f"Ø {w.mean_speed:.0f} kn{gust}, {w.sector or '?'} "
                 f"→ <b>{name}</b> (≥{config.THRESHOLDS_KN[name]:.0f} kn){gusty}"
             )
-    url = os.environ.get("DASHBOARD_URL", config.DASHBOARD_URL_DEFAULT)
-    lines.append(f'<a href="{url}">Dashboard</a>')
+    lines.append(_dashboard_link())
     return "\n".join(lines)
+
+
+def _dashboard_link() -> str:
+    url = os.environ.get("DASHBOARD_URL", config.DASHBOARD_URL_DEFAULT)
+    return f'<a href="{url}">Dashboard</a>'
+
+
+def format_status_message(hours: list[Hour]) -> str:
+    """Statusnachricht, wenn kein Kite-Fenster prognostiziert ist —
+    inkl. Maximum der Tageslicht-Prognose, damit man den Bot-Test
+    einordnen kann."""
+    today = dt.datetime.now(TZ).date()
+    relevant = [
+        h
+        for h in hours
+        if h.daylight
+        and h.speed is not None
+        and h.time.date() in (today, today + dt.timedelta(days=1))
+    ]
+    lines = [f"🪁 <b>Kite-Check {config.SPOT_NAME}</b>"]
+    thr = " / ".join(
+        f"{name} ≥ {kn:.0f} kn" for name, kn in config.THRESHOLDS_KN.items()
+    )
+    lines.append(
+        f"Kein Kite-Fenster für heute/morgen ({thr}, "
+        f"≥ {config.MIN_WINDOW_HOURS} h am Stück, Tageslicht)."
+    )
+    if relevant:
+        peak = max(relevant, key=lambda h: h.speed)
+        day = "heute" if peak.time.date() == today else "morgen"
+        gust = f" (Böen {peak.gust:.0f} kn)" if peak.gust is not None else ""
+        lines.append(
+            f"Höchster prognostizierter Wind tagsüber: {peak.speed:.0f} kn{gust}, "
+            f"{_sector_name(peak.direction)} — {day} um {peak.time:%H} Uhr."
+        )
+    lines.append(_dashboard_link())
+    return "\n".join(lines)
+
+
+def _sector_name(direction) -> str:
+    if direction is None:
+        return "?"
+    return core.SECTORS_16[core.direction_to_sector(direction)]
 
 
 def send_telegram(text: str) -> None:
@@ -145,6 +189,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
+        "--always",
+        action="store_true",
+        help="Auch ohne Kite-Fenster eine Statusnachricht senden "
+        "(für manuelle Tests des Bots).",
+    )
+    parser.add_argument(
         "--guard-hour",
         type=int,
         default=None,
@@ -161,10 +211,12 @@ def main() -> int:
     hours = build_hours(fetch_forecast())
     per_threshold = windows_today_tomorrow(hours)
     if not any(per_threshold.values()):
-        print("Keine Kite-Fenster für heute/morgen — keine Nachricht.")
-        return 0
-
-    message = format_message(per_threshold)
+        if not args.always:
+            print("Keine Kite-Fenster für heute/morgen — keine Nachricht.")
+            return 0
+        message = format_status_message(hours)
+    else:
+        message = format_message(per_threshold)
     print(message)
     if not args.dry_run:
         send_telegram(message)

@@ -117,6 +117,12 @@ Root liegen, ist das Dashboard danach direkt online. Der Workflow
    (Sommer-/Winterzeit); `--guard-hour 6` sorgt dafür, dass nur der
    passende sendet.
 
+   **Bot testen:** Wird der Workflow manuell gestartet (Actions →
+   „Kite-Benachrichtigung" → „Run workflow"), kommt **immer** eine
+   Nachricht — ohne Kite-Fenster eine Statusmeldung mit dem höchsten
+   prognostizierten Wind (`notify.py --always`). Der tägliche
+   6:30-Lauf bleibt spamfrei.
+
 Lokal testen:
 
 ```bash
