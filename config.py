@@ -5,10 +5,30 @@ Tests importieren von hier. Das Dashboard (index.html) hat einen eigenen,
 gleichlautenden CONFIG-Block im <script>-Teil.
 """
 
-# --- Spot ----------------------------------------------------------------
-SPOT_NAME = "Sempachersee (Sempach LU)"
-LATITUDE = 47.136
-LONGITUDE = 8.192
+# --- Spots ----------------------------------------------------------------
+# Mehrere Reviere; analyse.py wird pro Spot aufgerufen (--spot <key>).
+# validation_station: MeteoSwiss-SMN-Kürzel oder None (keine Validierung).
+SPOTS = {
+    "sempach": {
+        "name": "Sempachersee (Sempach LU)",
+        "latitude": 47.136,
+        "longitude": 8.192,
+        "stats_file": "stats.json",
+        "validation_station": "EGO",
+    },
+    "comer": {
+        "name": "Comersee (Seemitte Domaso–Colico)",
+        "latitude": 46.1445,
+        "longitude": 9.3505,
+        "stats_file": "stats_comer.json",
+        "validation_station": None,  # keine freie Messstation in Italien
+    },
+}
+
+# Haupt-Spot (Benachrichtigung & Standardwerte)
+SPOT_NAME = SPOTS["sempach"]["name"]
+LATITUDE = SPOTS["sempach"]["latitude"]
+LONGITUDE = SPOTS["sempach"]["longitude"]
 TIMEZONE = "Europe/Zurich"
 
 # --- Kite-Schwellen (mittlerer Wind in Knoten) ---------------------------
