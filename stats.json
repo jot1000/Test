@@ -8,8 +8,8 @@
   "min_window_hours": 2,
   "gusty_factor": 2.0,
   "unit": "kn",
-  "generated_at": "2026-07-11T12:56:04",
-  "source": "Open-Meteo Historical Weather API (Modell), MeteoSwiss OGD EGO (Validierung)"
+  "generated_at": "2026-07-11T17:26:22",
+  "source": "Open-Meteo Historical Weather API (ERA5-Reanalyse), MeteoSwiss OGD EGO (Validierung)"
  },
  "thresholds": {
   "foil": 10.0,
