@@ -16,6 +16,7 @@
   --border: rgba(11,11,11,0.10);
   --wind: #2a78d6;        /* Serie 1: Mittelwind */
   --gust: #eb6834;        /* Serie 2: Böen */
+  --station: #008300;     /* Serie: Messstation (Validierung) */
   --good: #0ca30c;
   --warn: #fab219;
   --window-fill: rgba(95,178,84,0.28);   /* Kite-Fenster-Schattierung */
@@ -37,6 +38,7 @@
     --border: rgba(255,255,255,0.10);
     --wind: #3987e5;
     --gust: #d95926;
+    --station: #008300;
     --window-fill: rgba(93,157,66,0.30);
     --night-fill: rgba(137,135,129,0.12);
     --lake: rgba(57,135,229,0.16);
@@ -139,6 +141,9 @@ footer a { color: inherit; }
   <div class="seg" id="thresholdToggle" role="group" aria-label="Kite-Schwelle">
     <button data-th="foil">Foil ≥ 10 kn</button>
     <button data-th="twintip" class="active">Twintip ≥ 12 kn</button>
+  </div>
+  <div class="seg" id="corrToggle" style="display:none" title="Kalender & Statistik mit messkorrigiertem Modellwind (Faktor aus der Egolzwil-Validierung)">
+    <button>Messkorrektur</button>
   </div>
 </header>
 
@@ -287,10 +292,20 @@ const KN_PER_KMH = 1 / 1.852, KN_PER_MS = 3.6 / 1.852;
 
 let currentSpot = "sempach";
 let currentThreshold = "twintip";
+let useCorrected = false; // Kalender/Statistik mit messkorrigiertem Wind
 const statsBySpot = {}, forecastBySpot = {};
 let statsData = null;    // Statistik des aktiven Spots
 let forecastData = null; // Prognose des aktiven Spots
 const spot = () => SPOTS[currentSpot];
+/* Aktive Statistik der gewählten Schwelle, ggf. messkorrigierte Variante */
+const activeStats = () =>
+  useCorrected && statsData.corrected
+    ? statsData.corrected[currentThreshold]
+    : statsData[currentThreshold];
+const corrLabel = () =>
+  useCorrected && statsData.corrected
+    ? ` · messkorrigiert ×${statsData.corrected.factor}`
+    : "";
 
 /* ---------- Helfer ---------- */
 const $ = (id) => document.getElementById(id);
@@ -692,7 +707,7 @@ function rampColor(t) {
 function renderCalendar() {
   const body = $("calendarBody");
   if (!statsData) return;
-  const cal = statsData[currentThreshold].calendar;
+  const cal = activeStats().calendar;
   const pmax = Math.max(0.05, ...cal.map((c) => c.p));
 
   const cell = 22, gapX = 4, padL = 22, padT = 18;
@@ -731,7 +746,7 @@ function renderCalendar() {
   legend.innerHTML = `<span class="item">0 %</span>` +
     ramp.map((c) => `<span class="swatch box" style="background:${c};width:18px"></span>`).join("") +
     `<span class="item">${Math.round(pmax * 100)} %</span>
-     <span class="item" style="margin-left:auto">Schwelle: ${esc(currentThreshold)} ≥ ${CONFIG.thresholds[currentThreshold]} kn</span>`;
+     <span class="item" style="margin-left:auto">Schwelle: ${esc(currentThreshold)} ≥ ${CONFIG.thresholds[currentThreshold]} kn${esc(corrLabel())}</span>`;
   body.append(legend);
 }
 
@@ -739,7 +754,7 @@ function renderCalendar() {
 function renderStats() {
   const body = $("statsBody");
   if (!statsData) return;
-  const s = statsData[currentThreshold];
+  const s = activeStats();
   body.className = "";
   body.innerHTML = "";
 
@@ -792,16 +807,41 @@ function renderStats() {
     })), { unit: "%" }
   ));
 
-  /* Trend: Kite-Tage pro vollständigem Jahr */
+  /* Trend: Kite-Tage pro vollständigem Jahr — wenn Messdaten der
+     Validierungsstation vorliegen, als Gegenprobe Modell vs. Messung */
+  const stationYears =
+    statsData.validation?.kite_days_per_year?.[currentThreshold]?.station;
   if (s.years.length > 1) {
-    body.append(sectionTitle("Kite-Tage pro Jahr (Trend)"));
-    body.append(miniBarChart(
-      s.years.map((y, i) => ({
-        label: (s.years.length <= 8 || y.year % 5 === 0 || i === s.years.length - 1) ? String(y.year) : "",
-        value: y.days,
-        tip: `<b>${y.year}</b><br>${y.days} Kite-Tage (${esc(currentThreshold)})`,
-      })), { unit: "" }
-    ));
+    const labelFor = (year, i) =>
+      (s.years.length <= 8 || year % 5 === 0 || i === s.years.length - 1) ? String(year) : "";
+    if (stationYears) {
+      body.append(sectionTitle(
+        `Kite-Tage pro Jahr — Modell vs. Messung ${statsData.validation.station} (Gegenprobe)`));
+      body.append(dualBarChart(
+        s.years.map((y, i) => ({
+          label: labelFor(y.year, i),
+          a: y.days,
+          b: stationYears[String(y.year)] ?? null,
+          tip: `<b>${y.year}</b><br>Modell: ${y.days} Kite-Tage<br>` +
+            `Messung: ${stationYears[String(y.year)] ?? "–"} Kite-Tage`,
+        }))
+      ));
+      const tl = document.createElement("div");
+      tl.className = "legend";
+      tl.innerHTML = `
+        <span class="item"><span class="swatch box" style="background:var(--wind)"></span>Modell</span>
+        <span class="item"><span class="swatch box" style="background:var(--station)"></span>Messung ${esc(statsData.validation.station)}</span>`;
+      body.append(tl);
+    } else {
+      body.append(sectionTitle("Kite-Tage pro Jahr (Trend)"));
+      body.append(miniBarChart(
+        s.years.map((y, i) => ({
+          label: labelFor(y.year, i),
+          value: y.days,
+          tip: `<b>${y.year}</b><br>${y.days} Kite-Tage (${esc(currentThreshold)})`,
+        })), { unit: "" }
+      ));
+    }
   }
 
   /* Windrose der Kite-Fenster auf der Seekarte */
@@ -825,7 +865,7 @@ function renderStats() {
   const v = statsData.validation;
   facts.innerHTML =
     `${s.n_kite_days} Kite-Tage in ${s.n_windows} Fenstern seit ${esc(statsData.meta.period.split("–")[0].trim())}, ` +
-    `Ø Fensterlänge ${s.mean_window_hours} h, ${(s.gusty_share * 100).toFixed(0)} % der Fenster böig (Faktor &gt; ${statsData.meta.gusty_factor}).` +
+    `Ø Fensterlänge ${s.mean_window_hours} h, ${(s.gusty_share * 100).toFixed(0)} % der Fenster böig (Faktor &gt; ${statsData.meta.gusty_factor})${esc(corrLabel())}.` +
     (v && v.correction_factor ? `<br>Validierung ${esc(v.station)} ${esc(v.period)}: Messung/Modell = ${v.correction_factor} (bei Wind ≥ 8 kn: ${v.correction_factor_windy ?? "–"}).` : "");
   body.append(facts);
 }
@@ -861,6 +901,43 @@ function miniBarChart(items, opts) {
     });
     attachTooltip(bar, it.tip);
     svg.append(bar);
+    if (it.label) {
+      const t = svgEl("text", { x: cx, y: H - 6, "text-anchor": "middle", "font-size": 10, fill: "var(--ink-2)" });
+      t.textContent = it.label;
+      svg.append(t);
+    }
+  });
+  svg.append(svgEl("line", { x1: padL, x2: W - padR, y1: y(0), y2: y(0), stroke: "var(--axis)" }));
+  return svg;
+}
+
+/* Gruppiertes Balkendiagramm (zwei Serien pro Kategorie) */
+function dualBarChart(items) {
+  const W = 860, H = 170, padL = 34, padR = 8, padT = 10, padB = 22;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const maxY = Math.max(1, ...items.flatMap((it) => [it.a || 0, it.b || 0])) * 1.1;
+  const y = (v) => padT + ih - (v / maxY) * ih;
+  const slot = iw / items.length;
+  const bw = slot * 0.34;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" });
+  const step = maxY > 40 ? 20 : maxY > 16 ? 10 : 5;
+  for (let v = 0; v <= maxY; v += step) {
+    svg.append(svgEl("line", { x1: padL, x2: W - padR, y1: y(v), y2: y(v), stroke: "var(--grid)" }));
+    const t = svgEl("text", { x: padL - 5, y: y(v) + 3, "text-anchor": "end", "font-size": 10, fill: "var(--muted)" });
+    t.textContent = v;
+    svg.append(t);
+  }
+  items.forEach((it, i) => {
+    const cx = padL + i * slot + slot / 2;
+    for (const [val, color, off] of [[it.a, "var(--wind)", -bw - 1], [it.b, "var(--station)", 1]]) {
+      if (val == null) continue;
+      const bar = svgEl("rect", {
+        x: cx + off, y: y(val), width: bw,
+        height: Math.max(0, y(0) - y(val)), rx: 2, fill: color,
+      });
+      attachTooltip(bar, it.tip);
+      svg.append(bar);
+    }
     if (it.label) {
       const t = svgEl("text", { x: cx, y: H - 6, "text-anchor": "middle", "font-size": 10, fill: "var(--ink-2)" });
       t.textContent = it.label;
@@ -1013,6 +1090,7 @@ async function loadStats() {
     if (key !== currentSpot) return;
     statsData = statsBySpot[key];
     $("metaInfo").textContent = `Statistik: ${statsData.meta.period}, erstellt ${statsData.meta.generated_at.slice(0, 10)}`;
+    updateCorrToggle();
     renderCalendar();
     renderStats();
   } catch (e) {
@@ -1040,6 +1118,7 @@ function loadSpot() {
     $("forecastBody").textContent = "Lade Prognose …";
     loadForecast();
   }
+  updateCorrToggle();
   if (statsData) {
     $("metaInfo").textContent = `Statistik: ${statsData.meta.period}, erstellt ${statsData.meta.generated_at.slice(0, 10)}`;
     renderCalendar();
@@ -1074,6 +1153,26 @@ $("thresholdToggle").addEventListener("click", (e) => {
   currentThreshold = btn.dataset.th;
   for (const b of $("thresholdToggle").children) b.classList.toggle("active", b === btn);
   renderForecast();
+  if (statsData) { renderCalendar(); renderStats(); }
+});
+
+/* Messkorrektur-Umschalter: nur sichtbar, wenn der aktive Spot eine
+   korrigierte Statistik-Variante mitbringt (Sempachersee) */
+function updateCorrToggle() {
+  const available = !!(statsData && statsData.corrected);
+  $("corrToggle").style.display = available ? "" : "none";
+  if (available) {
+    $("corrToggle").firstElementChild.textContent =
+      `Messkorrektur ×${statsData.corrected.factor}`;
+  } else {
+    useCorrected = false;
+  }
+  $("corrToggle").firstElementChild.classList.toggle("active", useCorrected);
+}
+
+$("corrToggle").addEventListener("click", () => {
+  useCorrected = !useCorrected;
+  $("corrToggle").firstElementChild.classList.toggle("active", useCorrected);
   if (statsData) { renderCalendar(); renderStats(); }
 });
 

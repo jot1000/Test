@@ -174,8 +174,16 @@ tests/         Unit-Tests der Kernlogik
   läuft auch ohne Validierung durch (`--skip-validation` bzw. automatischer
   Fallback).
 - Die Open-Meteo-Archive-API hinkt der Gegenwart ~5 Tage hinterher.
-- Der Korrekturfaktor Messung/Modell steht in `stats.json → validation` und
-  wird bewusst nur dokumentiert, nicht automatisch angewendet.
+- Der Korrekturfaktor Messung/Modell steht in `stats.json → validation`.
+  Zusätzlich rechnet `analyse.py` für Spots mit Validierungsstation eine
+  **messkorrigierte Statistik-Variante** (`stats.json → corrected`):
+  Modellwind × Faktor, Fenster neu gezählt. Im Dashboard per Umschalter
+  „Messkorrektur" zuschaltbar — die Standardansicht bleibt unkorrigiert.
+- Die Validierung vergleicht die Kite-Tage pro Jahr über die **volle
+  Periode** (Trend-Gegenprobe Modell vs. Messung, im Dashboard als
+  Doppelbalken-Diagramm). Damit lässt sich einordnen, ob Auffälligkeiten
+  im Modell-Trend (z. B. der Sprung ab ~2019) real sind oder ein
+  Artefakt der Modellhistorie.
 
 ## ARPA Lombardia (Live-Daten Comersee)
 
