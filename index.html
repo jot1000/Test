@@ -108,6 +108,14 @@ svg text { font-family: inherit; }
 .legend .swatch { width: 14px; height: 3px; border-radius: 2px; }
 .legend .swatch.box { height: 11px; border-radius: 3px; }
 
+/* Kite-Fenster-Chips über der Prognose */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
+.chip {
+  border-radius: 999px; padding: 4px 12px; font-size: 0.82rem; font-weight: 600;
+  border: 1px solid var(--border); background: var(--window-fill); color: var(--ink);
+}
+.chip.foil { background: transparent; border-style: dashed; font-weight: 500; }
+
 #tooltip {
   position: fixed; pointer-events: none; z-index: 10; display: none;
   background: var(--surface); color: var(--ink);
@@ -141,7 +149,7 @@ footer a { color: inherit; }
   </section>
 
   <section class="card">
-    <h2>Prognose 48 h</h2>
+    <h2>Prognose heute &amp; morgen</h2>
     <div id="forecastBody" class="hint">Lade Prognose …</div>
   </section>
 
@@ -258,15 +266,17 @@ const SPOTS = {
       ],
       lakeLabel: { lat: 46.1245, lon: 9.3140, rot: -36, text: "Lago di Como" },
       spotLabel: "Spot (Boot)",
-      /* Seemitte: entscheidend ist die Anströmung längs der Seeachse
-         (Breva aus S/SSW, Tivano aus N/NNO); quer = Bergabdeckung */
-      exposure: ["auf","auf","side","ab","ab","ab","ab","side","auf","auf","auf","side","ab","ab","ab","side"],
+      /* Seemitte: frei = längs der Seeachse (Breva aus S/SSW, Tivano aus
+         N/NNO) oder Einströmung aus der Valtellina bei Colico (O/OSO —
+         laut ICON-D2-Statistik der häufigste Kite-Wind hier!);
+         quer aus West = Abdeckung durch die Hänge Gravedona-Dongo. */
+      exposure: ["auf","auf","side","side","side","auf","side","side","auf","auf","auf","side","ab","ab","ab","side"],
       exposureText: {
-        auf: "frei längs des Sees (Tivano/Breva)",
-        side: "schräg zur Seeachse — meist brauchbar",
-        ab: "⚠️ quer zur Seeachse — Bergabdeckung, böig/drehend",
+        auf: "frei — Seeachse (Tivano/Breva) bzw. Valtellina-Einströmung",
+        side: "schräg — meist brauchbar",
+        ab: "⚠️ quer aus West — Bergabdeckung, böig/drehend",
       },
-      warnLegend: "⚠️ quer zur Seeachse (Bergabdeckung, böig)",
+      warnLegend: "⚠️ Bergabdeckung aus West (böig)",
     },
   },
 };
@@ -482,26 +492,70 @@ async function loadForecast() {
   }
 }
 
+function localDateStr(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function forecastHours() {
+  // Immer zwei ganze Kalendertage: heute 00-24 Uhr + morgen 00-24 Uhr.
+  // Vergangene Stunden bleiben sichtbar (im Chart abgeblendet).
   const h = forecastData.hourly;
   const daylight = {};
   forecastData.daily.time.forEach((d, i) => {
     daylight[d] = [new Date(forecastData.daily.sunrise[i]), new Date(forecastData.daily.sunset[i])];
   });
   const now = Date.now();
+  const todayStr = localDateStr(new Date());
+  const tomorrowStr = localDateStr(new Date(Date.now() + 86400e3));
   const hours = [];
-  for (let i = 0; i < h.time.length && hours.length < 48; i++) {
+  for (let i = 0; i < h.time.length; i++) {
+    const ds = h.time[i].slice(0, 10);
+    if (ds !== todayStr && ds !== tomorrowStr) continue;
     const t = new Date(h.time[i]); // lokale Zeit des Browsers ≈ Spot-Zeit für CH-Nutzer
-    if (t.getTime() + 3600e3 < now) continue;
-    const sun = daylight[h.time[i].slice(0, 10)];
+    const sun = daylight[ds];
     const day = sun ? (t.getTime() + 3600e3 > sun[0].getTime() && t.getTime() < sun[1].getTime()) : false;
     hours.push({
       time: t.getTime(), label: h.time[i],
       speed: h.wind_speed_10m[i], gust: h.wind_gusts_10m[i], dir: h.wind_direction_10m[i],
-      daylight: day,
+      daylight: day, past: t.getTime() + 3600e3 <= now,
     });
   }
   return hours;
+}
+
+/* Kite-Fenster heute/morgen als Text-Chips (gleiche Logik wie notify.py:
+   twintip-Fenster werden nicht zusätzlich als foil gemeldet) */
+function meanDirection(hs) {
+  let x = 0, y = 0, n = 0;
+  for (const h of hs) {
+    if (h.dir == null) continue;
+    x += Math.sin(h.dir * Math.PI / 180); y += Math.cos(h.dir * Math.PI / 180); n++;
+  }
+  return n ? ((Math.atan2(x, y) * 180 / Math.PI) + 360) % 360 : null;
+}
+
+function windowChips(hours) {
+  const todayStr = localDateStr(new Date());
+  const tt = findWindows(hours, CONFIG.thresholds.twintip);
+  const foil = findWindows(hours, CONFIG.thresholds.foil).filter(
+    (w) => !tt.some((t) => t[0].time <= w[0].time && t[t.length - 1].time >= w[w.length - 1].time)
+  );
+  const chips = [];
+  for (const [level, wins] of [["twintip", tt], ["foil", foil]]) {
+    for (const w of wins) {
+      const mean = w.reduce((a, h) => a + h.speed, 0) / w.length;
+      const dir = meanDirection(w);
+      chips.push({
+        level,
+        day: w[0].label.slice(0, 10) === todayStr ? "Heute" : "Morgen",
+        from: w[0].label.slice(11, 13), to: String((+w[w.length - 1].label.slice(11, 13) + 1) % 24).padStart(2, "0"),
+        mean, sector: dir == null ? "?" : sectorOf(dir),
+        start: w[0].time,
+      });
+    }
+  }
+  return chips.sort((a, b) => a.start - b.start);
 }
 
 function renderForecast() {
@@ -569,6 +623,22 @@ function renderForecast() {
   path((h) => h.gust, "var(--gust)");
   path((h) => h.speed, "var(--wind)");
 
+  // Vergangene Stunden abblenden + "Jetzt"-Markierung
+  const nowIdx = (Date.now() - hours[0].time) / 3600e3;
+  if (nowIdx > 0) {
+    const xNow = x(Math.max(0, Math.min(hours.length - 1, nowIdx)));
+    svg.append(svgEl("rect", { x: padL, y: padT, width: Math.max(0, xNow - padL),
+      height: ih, fill: "var(--surface)", opacity: 0.55 }));
+    if (nowIdx < hours.length - 1) {
+      svg.append(svgEl("line", { x1: xNow, x2: xNow, y1: padT - 2, y2: padT + ih,
+        stroke: "var(--ink)", "stroke-width": 1.5 }));
+      const nowT = svgEl("text", { x: xNow + 4, y: padT + 10, "font-size": 9.5,
+        "font-weight": 600, fill: "var(--ink)" });
+      nowT.textContent = "Jetzt";
+      svg.append(nowT);
+    }
+  }
+
   // Hover-Ebene (Crosshair + Tooltip)
   const hover = svgEl("rect", { x: padL, y: padT, width: iw, height: ih, fill: "transparent" });
   const cross = svgEl("line", { y1: padT, y2: padT + ih, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
@@ -589,7 +659,20 @@ function renderForecast() {
 
   body.className = "";
   body.innerHTML = "";
-  body.append(svg);
+
+  // Fenster-Zusammenfassung als Chips über dem Chart
+  const chips = windowChips(hours);
+  const chipRow = document.createElement("div");
+  chipRow.className = "chips";
+  if (chips.length) {
+    chipRow.innerHTML = chips.map((c) =>
+      `<span class="chip ${c.level}">${c.day} ${c.from}–${c.to} Uhr · Ø ${Math.round(c.mean)} kn · ${esc(c.sector)} · ${c.level}</span>`
+    ).join("");
+  } else {
+    chipRow.innerHTML = `<span class="hint">Kein Kite-Fenster heute/morgen (foil ≥ ${CONFIG.thresholds.foil} kn, ≥ ${CONFIG.minWindowHours} h, Tageslicht).</span>`;
+  }
+  body.append(chipRow, svg);
+
   const legend = document.createElement("div");
   legend.className = "legend";
   legend.innerHTML = `
@@ -598,13 +681,6 @@ function renderForecast() {
     <span class="item"><span class="swatch box" style="background:var(--window-fill)"></span>Kite-Fenster (≥${thr} kn, ≥${CONFIG.minWindowHours} h, Tageslicht)</span>
     <span class="item"><span class="swatch box" style="background:var(--night-fill)"></span>Nacht</span>`;
   body.append(legend);
-
-  if (!windows.length) {
-    const p = document.createElement("p");
-    p.className = "hint";
-    p.textContent = "Kein Kite-Fenster in den nächsten 48 h.";
-    body.append(p);
-  }
 }
 
 /* ---------- Kalender-Heatmap (Phase 2) ---------- */
@@ -705,6 +781,29 @@ function renderStats() {
   h3a.style.fontSize = "0.9rem";
   body.append(h3a, svg);
 
+  /* Tageszeit-Verteilung der Fensterstunden (Thermik-Muster) */
+  const hodTotal = s.hours_of_day.reduce((a, b) => a + b, 0) || 1;
+  body.append(sectionTitle("Fensterstunden nach Tageszeit (Thermik-Muster)"));
+  body.append(miniBarChart(
+    s.hours_of_day.map((v, h) => ({
+      label: h % 3 === 0 ? String(h) : "",
+      value: (v / hodTotal) * 100,
+      tip: `<b>${h}–${h + 1} Uhr</b><br>${((v / hodTotal) * 100).toFixed(1)} % der Kite-Fenster-Stunden`,
+    })), { unit: "%" }
+  ));
+
+  /* Trend: Kite-Tage pro vollständigem Jahr */
+  if (s.years.length > 1) {
+    body.append(sectionTitle("Kite-Tage pro Jahr (Trend)"));
+    body.append(miniBarChart(
+      s.years.map((y, i) => ({
+        label: (s.years.length <= 8 || y.year % 5 === 0 || i === s.years.length - 1) ? String(y.year) : "",
+        value: y.days,
+        tip: `<b>${y.year}</b><br>${y.days} Kite-Tage (${esc(currentThreshold)})`,
+      })), { unit: "" }
+    ));
+  }
+
   /* Windrose der Kite-Fenster auf der Seekarte */
   const rose = buildWindroseMap(s);
 
@@ -729,6 +828,47 @@ function renderStats() {
     `Ø Fensterlänge ${s.mean_window_hours} h, ${(s.gusty_share * 100).toFixed(0)} % der Fenster böig (Faktor &gt; ${statsData.meta.gusty_factor}).` +
     (v && v.correction_factor ? `<br>Validierung ${esc(v.station)} ${esc(v.period)}: Messung/Modell = ${v.correction_factor} (bei Wind ≥ 8 kn: ${v.correction_factor_windy ?? "–"}).` : "");
   body.append(facts);
+}
+
+function sectionTitle(text) {
+  const h = document.createElement("h2");
+  h.textContent = text;
+  h.style.fontSize = "0.9rem";
+  h.style.marginTop = "18px";
+  return h;
+}
+
+/* Kompaktes Balkendiagramm (Tageszeit-Verteilung, Jahres-Trend) */
+function miniBarChart(items, opts) {
+  const W = 860, H = 150, padL = 34, padR = 8, padT = 10, padB = 22;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const maxY = Math.max(1, ...items.map((it) => it.value)) * 1.1;
+  const y = (v) => padT + ih - (v / maxY) * ih;
+  const bw = iw / items.length;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" });
+  const step = maxY > 20 ? 10 : maxY > 8 ? 5 : 2;
+  for (let v = 0; v <= maxY; v += step) {
+    svg.append(svgEl("line", { x1: padL, x2: W - padR, y1: y(v), y2: y(v), stroke: "var(--grid)" }));
+    const t = svgEl("text", { x: padL - 5, y: y(v) + 3, "text-anchor": "end", "font-size": 10, fill: "var(--muted)" });
+    t.textContent = v + (opts.unit || "");
+    svg.append(t);
+  }
+  items.forEach((it, i) => {
+    const cx = padL + i * bw + bw / 2;
+    const bar = svgEl("rect", {
+      x: cx - bw * 0.32, y: y(it.value), width: bw * 0.64,
+      height: Math.max(0, y(0) - y(it.value)), rx: 3, fill: "var(--wind)",
+    });
+    attachTooltip(bar, it.tip);
+    svg.append(bar);
+    if (it.label) {
+      const t = svgEl("text", { x: cx, y: H - 6, "text-anchor": "middle", "font-size": 10, fill: "var(--ink-2)" });
+      t.textContent = it.label;
+      svg.append(t);
+    }
+  });
+  svg.append(svgEl("line", { x1: padL, x2: W - padR, y1: y(0), y2: y(0), stroke: "var(--axis)" }));
+  return svg;
 }
 
 /* ---------- Windrose auf Seekarte ----------
