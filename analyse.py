@@ -302,15 +302,22 @@ def threshold_stats(hours: list[Hour], threshold_kn: float) -> dict:
 def validate_against_station(
     model_hourly: pd.DataFrame, daylight: dict, today: dt.date,
     station_id: str = config.METEOSWISS_STATION,
+    trend_start_year: int = config.HISTORY_START_YEAR,
 ) -> dict:
+    """Vergleich Modell vs. Messstation.
+
+    Korrekturfaktoren aus den letzten VALIDATION_YEARS (aktuelle Sensorik),
+    Kite-Tage pro Jahr dagegen über die volle Periode ab trend_start_year —
+    als Gegenprobe, ob Trends im Modell auch in den Messdaten stecken.
+    """
     import meteoswiss
 
     end_year = today.year - 1
-    start_year = end_year - config.VALIDATION_YEARS + 1
-    station = meteoswiss.load_hourly(station_id, start_year, end_year)
+    factor_start = end_year - config.VALIDATION_YEARS + 1
+    station = meteoswiss.load_hourly(station_id, trend_start_year, end_year)
 
     model = model_hourly[
-        (model_hourly["time"].dt.year >= start_year)
+        (model_hourly["time"].dt.year >= trend_start_year)
         & (model_hourly["time"].dt.year <= end_year)
     ]
     merged = model.merge(station, on="time", suffixes=("_model", "_station")).dropna(
@@ -319,10 +326,11 @@ def validate_against_station(
     if merged.empty:
         raise RuntimeError("Keine überlappenden Stunden Modell/Station")
 
-    mean_model = float(merged["speed_kn_model"].mean())
-    mean_station = float(merged["speed_kn_station"].mean())
+    recent = merged[merged["time"].dt.year >= factor_start]
+    mean_model = float(recent["speed_kn_model"].mean())
+    mean_station = float(recent["speed_kn_station"].mean())
     # Für Kite-Fragen relevanter: Verhältnis bei nennenswertem Wind
-    windy = merged[merged["speed_kn_model"] >= 8.0]
+    windy = recent[recent["speed_kn_model"] >= 8.0]
     ratio_windy = (
         float(windy["speed_kn_station"].mean() / windy["speed_kn_model"].mean())
         if len(windy)
@@ -331,7 +339,8 @@ def validate_against_station(
 
     result = {
         "station": station_id,
-        "period": f"{start_year}-{end_year}",
+        "period": f"{factor_start}-{end_year}",
+        "trend_period": f"{int(station['time'].dt.year.min())}-{end_year}",
         "n_hours_matched": int(len(merged)),
         "mean_wind_model_kn": round(mean_model, 2),
         "mean_wind_station_kn": round(mean_station, 2),
@@ -340,7 +349,8 @@ def validate_against_station(
         "kite_days_per_year": {},
     }
 
-    # Kite-Tage pro Jahr, Modell vs. Messung, je Schwelle
+    # Kite-Tage pro Jahr über die volle Periode, Modell vs. Messung
+    first_station_year = int(station["time"].dt.year.min())
     station_hours = build_hours(station, daylight)
     model_hours = build_hours(model, daylight)
     for name, thr in config.THRESHOLDS_KN.items():
@@ -352,9 +362,31 @@ def validate_against_station(
             counts = defaultdict(int)
             for d in days:
                 counts[d.year] += 1
-            per_year[label] = {str(y): counts.get(y, 0) for y in range(start_year, end_year + 1)}
+            per_year[label] = {
+                str(y): counts.get(y, 0)
+                for y in range(max(trend_start_year, first_station_year), end_year + 1)
+            }
         result["kite_days_per_year"][name] = per_year
     return result
+
+
+def corrected_stats(hours: list[Hour], factor: float) -> dict:
+    """Statistik-Variante mit messkorrigiertem Modellwind (Wind und Böen
+    mit dem Validierungsfaktor skaliert, Fenster neu gezählt)."""
+    scaled = [
+        Hour(
+            time=h.time,
+            speed=None if h.speed is None else h.speed * factor,
+            gust=None if h.gust is None else h.gust * factor,
+            direction=h.direction,
+            daylight=h.daylight,
+        )
+        for h in hours
+    ]
+    out = {"factor": round(factor, 3)}
+    for name, thr in config.THRESHOLDS_KN.items():
+        out[name] = threshold_stats(scaled, thr)
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -406,8 +438,15 @@ def main() -> None:
     if station and not args.skip_validation:
         try:
             stats["validation"] = validate_against_station(
-                hourly, daylight, today, station
+                hourly, daylight, today, station, trend_start_year=start_year
             )
+            factor = (
+                stats["validation"].get("correction_factor_windy")
+                or stats["validation"].get("correction_factor")
+            )
+            if factor:
+                log.info("Rechne messkorrigierte Variante (Faktor %.3f)", factor)
+                stats["corrected"] = corrected_stats(hours, factor)
         except Exception as e:
             log.warning("Validierung fehlgeschlagen (%s) — Ausgabe ohne Validierung", e)
             stats["validation"] = {"error": str(e)}
