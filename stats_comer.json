@@ -8,7 +8,7 @@
   "min_window_hours": 2,
   "gusty_factor": 2.0,
   "unit": "kn",
-  "generated_at": "2026-07-14T15:28:37",
+  "generated_at": "2026-07-14T15:59:46",
   "source": "Open-Meteo Historical Forecast API (ICON-D2, 2.2 km, ab 2023)"
  },
  "thresholds": {
