@@ -106,6 +106,16 @@ Pro Reiter zeigt sie:
   gestrichelten Warnbogen markiert; anpassbar über `SPOT_EXPOSURE`
   in `index.html`)
 
+**Als App aufs Handy:** Das Dashboard ist eine installierbare Web-App
+(Manifest + Icons). Auf dem Handy die Dashboard-Adresse öffnen, dann:
+
+- **Android/Chrome:** Menü (⋮) → „App installieren" bzw. „Zum
+  Startbildschirm hinzufügen"
+- **iPhone/Safari:** Teilen-Knopf → „Zum Home-Bildschirm"
+
+Danach startet es vom Homescreen im Vollbild mit eigenem Icon, wie eine
+native App.
+
 Lokal ansehen (fetch braucht einen HTTP-Server, `file://` genügt nicht):
 
 ```bash
