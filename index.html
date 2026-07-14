@@ -152,8 +152,10 @@ footer a { color: inherit; }
     <button data-th="foil">Foil ≥ 10 kn</button>
     <button data-th="twintip" class="active">Twintip ≥ 12 kn</button>
   </div>
-  <div class="seg" id="corrToggle" style="display:none" title="Kalender & Statistik mit messkorrigiertem Modellwind (Faktor aus der Egolzwil-Validierung)">
-    <button>Messkorrektur</button>
+  <div class="seg" id="viewToggle" style="display:none" title="Datengrundlage für Kalender & Statistik">
+    <button data-view="model" class="active">Modell</button>
+    <button data-view="corrected">Korrigiert</button>
+    <button data-view="measured">Messung</button>
   </div>
 </header>
 
@@ -302,20 +304,27 @@ const KN_PER_KMH = 1 / 1.852, KN_PER_MS = 3.6 / 1.852;
 
 let currentSpot = "sempach";
 let currentThreshold = "twintip";
-let useCorrected = false; // Kalender/Statistik mit messkorrigiertem Wind
+let viewMode = "model"; // Datengrundlage: model | corrected | measured
 const statsBySpot = {}, forecastBySpot = {};
 let statsData = null;    // Statistik des aktiven Spots
 let forecastData = null; // Prognose des aktiven Spots
 const spot = () => SPOTS[currentSpot];
-/* Aktive Statistik der gewählten Schwelle, ggf. messkorrigierte Variante */
-const activeStats = () =>
-  useCorrected && statsData.corrected
-    ? statsData.corrected[currentThreshold]
-    : statsData[currentThreshold];
-const corrLabel = () =>
-  useCorrected && statsData.corrected
-    ? ` · messkorrigiert ×${statsData.corrected.factor}`
-    : "";
+/* Aktive Statistik der gewählten Schwelle je nach Datengrundlage:
+   Modell, messkorrigiertes Modell oder Messdaten der Station */
+const activeStats = () => {
+  if (viewMode === "corrected" && statsData.corrected)
+    return statsData.corrected[currentThreshold];
+  if (viewMode === "measured" && statsData.measured)
+    return statsData.measured[currentThreshold];
+  return statsData[currentThreshold];
+};
+const corrLabel = () => {
+  if (viewMode === "corrected" && statsData.corrected)
+    return ` · messkorrigiert ×${statsData.corrected.factor}`;
+  if (viewMode === "measured" && statsData.measured)
+    return ` · Messdaten ${statsData.measured.station}`;
+  return "";
+};
 
 /* ---------- Helfer ---------- */
 const $ = (id) => document.getElementById(id);
@@ -821,15 +830,18 @@ function renderStats() {
      Validierungsstation vorliegen, als Gegenprobe Modell vs. Messung */
   const stationYears =
     statsData.validation?.kite_days_per_year?.[currentThreshold]?.station;
+  // Gegenprobe immer mit den unkorrigierten Modelljahren (blaue Serie),
+  // unabhängig von der gewählten Ansicht
+  const modelYears = statsData[currentThreshold].years;
   if (s.years.length > 1) {
-    const labelFor = (year, i) =>
-      (s.years.length <= 8 || year % 5 === 0 || i === s.years.length - 1) ? String(year) : "";
+    const labelFor = (year, i, n) =>
+      (n <= 8 || year % 5 === 0 || i === n - 1) ? String(year) : "";
     if (stationYears) {
       body.append(sectionTitle(
         `Kite-Tage pro Jahr — Modell vs. Messung ${statsData.validation.station} (Gegenprobe)`));
       body.append(dualBarChart(
-        s.years.map((y, i) => ({
-          label: labelFor(y.year, i),
+        modelYears.map((y, i) => ({
+          label: labelFor(y.year, i, modelYears.length),
           a: y.days,
           b: stationYears[String(y.year)] ?? null,
           tip: `<b>${y.year}</b><br>Modell: ${y.days} Kite-Tage<br>` +
@@ -846,7 +858,7 @@ function renderStats() {
       body.append(sectionTitle("Kite-Tage pro Jahr (Trend)"));
       body.append(miniBarChart(
         s.years.map((y, i) => ({
-          label: labelFor(y.year, i),
+          label: labelFor(y.year, i, s.years.length),
           value: y.days,
           tip: `<b>${y.year}</b><br>${y.days} Kite-Tage (${esc(currentThreshold)})`,
         })), { unit: "" }
@@ -874,8 +886,13 @@ function renderStats() {
   facts.className = "hint";
   const v = statsData.validation;
   facts.innerHTML =
-    `${s.n_kite_days} Kite-Tage in ${s.n_windows} Fenstern seit ${esc(statsData.meta.period.split("–")[0].trim())}, ` +
+    `${s.n_kite_days} Kite-Tage in ${s.n_windows} Fenstern seit ` +
+    `${esc((viewMode === "measured" ? statsData.measured.period : statsData.meta.period).split("–")[0].trim())}, ` +
     `Ø Fensterlänge ${s.mean_window_hours} h, ${(s.gusty_share * 100).toFixed(0)} % der Fenster böig (Faktor &gt; ${statsData.meta.gusty_factor})${esc(corrLabel())}.` +
+    (viewMode === "measured"
+      ? `<br>⚠️ Messdaten der Station ${esc(statsData.measured.station)} (~15 km westlich des Sees):
+         Windrichtungen und Zeiten gelten für den Stationsstandort, nicht fürs Wasser.`
+      : "") +
     (v && v.correction_factor ? `<br>Validierung ${esc(v.station)} ${esc(v.period)}: Messung/Modell = ${v.correction_factor} (bei Wind ≥ 8 kn: ${v.correction_factor_windy ?? "–"}).` : "");
   body.append(facts);
 }
@@ -1100,7 +1117,7 @@ async function loadStats() {
     if (key !== currentSpot) return;
     statsData = statsBySpot[key];
     $("metaInfo").textContent = `Statistik: ${statsData.meta.period}, erstellt ${statsData.meta.generated_at.slice(0, 10)}`;
-    updateCorrToggle();
+    updateViewToggle();
     renderCalendar();
     renderStats();
   } catch (e) {
@@ -1128,7 +1145,7 @@ function loadSpot() {
     $("forecastBody").textContent = "Lade Prognose …";
     loadForecast();
   }
-  updateCorrToggle();
+  updateViewToggle();
   if (statsData) {
     $("metaInfo").textContent = `Statistik: ${statsData.meta.period}, erstellt ${statsData.meta.generated_at.slice(0, 10)}`;
     renderCalendar();
@@ -1166,23 +1183,35 @@ $("thresholdToggle").addEventListener("click", (e) => {
   if (statsData) { renderCalendar(); renderStats(); }
 });
 
-/* Messkorrektur-Umschalter: nur sichtbar, wenn der aktive Spot eine
-   korrigierte Statistik-Variante mitbringt (Sempachersee) */
-function updateCorrToggle() {
-  const available = !!(statsData && statsData.corrected);
-  $("corrToggle").style.display = available ? "" : "none";
-  if (available) {
-    $("corrToggle").firstElementChild.textContent =
-      `Messkorrektur ×${statsData.corrected.factor}`;
-  } else {
-    useCorrected = false;
+/* Ansichtswahl (Modell / korrigiert / Messung): nur die verfügbaren
+   Varianten des aktiven Spots anbieten */
+function updateViewToggle() {
+  const hasCorr = !!(statsData && statsData.corrected);
+  const hasMeas = !!(statsData && statsData.measured);
+  $("viewToggle").style.display = hasCorr || hasMeas ? "" : "none";
+  for (const b of $("viewToggle").children) {
+    if (b.dataset.view === "corrected") {
+      b.style.display = hasCorr ? "" : "none";
+      b.textContent = hasCorr ? `Korrigiert ×${statsData.corrected.factor}` : "Korrigiert";
+    }
+    if (b.dataset.view === "measured") {
+      b.style.display = hasMeas ? "" : "none";
+      b.textContent = hasMeas ? `Messung ${statsData.measured.station}` : "Messung";
+    }
   }
-  $("corrToggle").firstElementChild.classList.toggle("active", useCorrected);
+  if ((viewMode === "corrected" && !hasCorr) || (viewMode === "measured" && !hasMeas)) {
+    viewMode = "model";
+  }
+  for (const b of $("viewToggle").children) {
+    b.classList.toggle("active", b.dataset.view === viewMode);
+  }
 }
 
-$("corrToggle").addEventListener("click", () => {
-  useCorrected = !useCorrected;
-  $("corrToggle").firstElementChild.classList.toggle("active", useCorrected);
+$("viewToggle").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn || btn.dataset.view === viewMode) return;
+  viewMode = btn.dataset.view;
+  for (const b of $("viewToggle").children) b.classList.toggle("active", b === btn);
   if (statsData) { renderCalendar(); renderStats(); }
 });
 
