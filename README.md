@@ -191,9 +191,17 @@ tests/         Unit-Tests der Kernlogik
   „Messkorrektur" zuschaltbar — die Standardansicht bleibt unkorrigiert.
 - Die Validierung vergleicht die Kite-Tage pro Jahr über die **volle
   Periode** (Trend-Gegenprobe Modell vs. Messung, im Dashboard als
-  Doppelbalken-Diagramm). Damit lässt sich einordnen, ob Auffälligkeiten
-  im Modell-Trend (z. B. der Sprung ab ~2019) real sind oder ein
-  Artefakt der Modellhistorie.
+  Doppelbalken-Diagramm). Ergebnis: Der scheinbare Anstieg der
+  Modell-Kite-Tage ab ~2017/2019 ist ein **Artefakt der Modellhistorie**
+  — die Messdaten zeigen einen stabilen Verlauf. Die frühen Modelljahre
+  unterschätzen massiv.
+- Deshalb gibt es für den Sempachersee **drei Datengrundlagen**, im
+  Dashboard oben umschaltbar: „Modell" (konservativ), „Korrigiert"
+  (Modell × Validierungsfaktor) und „Messung EGO" (`stats.json →
+  measured`; Kalender/Statistik direkt aus 20 Jahren
+  Egolzwil-Stundenmessung). Vorbehalt bei „Messung": Die Station steht
+  ~15 km westlich des Sees im offenen Wauwilermoos — Richtungen und
+  Niveau gelten für den Stationsstandort.
 
 ## ARPA Lombardia (Live-Daten Comersee)
 

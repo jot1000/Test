@@ -303,12 +303,14 @@ def validate_against_station(
     model_hourly: pd.DataFrame, daylight: dict, today: dt.date,
     station_id: str = config.METEOSWISS_STATION,
     trend_start_year: int = config.HISTORY_START_YEAR,
-) -> dict:
+) -> tuple[dict, list[Hour]]:
     """Vergleich Modell vs. Messstation.
 
     Korrekturfaktoren aus den letzten VALIDATION_YEARS (aktuelle Sensorik),
     Kite-Tage pro Jahr dagegen über die volle Periode ab trend_start_year —
     als Gegenprobe, ob Trends im Modell auch in den Messdaten stecken.
+    Gibt zusätzlich die Stations-Stundenreihe zurück (für die
+    Messdaten-Statistik).
     """
     import meteoswiss
 
@@ -367,7 +369,7 @@ def validate_against_station(
                 for y in range(max(trend_start_year, first_station_year), end_year + 1)
             }
         result["kite_days_per_year"][name] = per_year
-    return result
+    return result, station_hours
 
 
 def corrected_stats(hours: list[Hour], factor: float) -> dict:
@@ -437,7 +439,7 @@ def main() -> None:
 
     if station and not args.skip_validation:
         try:
-            stats["validation"] = validate_against_station(
+            stats["validation"], station_hours = validate_against_station(
                 hourly, daylight, today, station, trend_start_year=start_year
             )
             factor = (
@@ -447,6 +449,15 @@ def main() -> None:
             if factor:
                 log.info("Rechne messkorrigierte Variante (Faktor %.3f)", factor)
                 stats["corrected"] = corrected_stats(hours, factor)
+            # Dritte Ansicht: Statistik direkt aus den Messdaten der Station
+            log.info("Rechne Messdaten-Statistik (%d Stationsstunden)", len(station_hours))
+            measured = {
+                "station": station,
+                "period": f"{station_hours[0].time.date()} – {station_hours[-1].time.date()}",
+            }
+            for name, thr in config.THRESHOLDS_KN.items():
+                measured[name] = threshold_stats(station_hours, thr)
+            stats["measured"] = measured
         except Exception as e:
             log.warning("Validierung fehlgeschlagen (%s) — Ausgabe ohne Validierung", e)
             stats["validation"] = {"error": str(e)}
