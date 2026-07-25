@@ -15,8 +15,8 @@ Aufruf:
     python notify.py --always        # immer senden: ohne Kite-Fenster kommt
                                      # eine Statusnachricht (für manuelle Tests)
     python notify.py --dry-run       # nur ausgeben, nichts senden
-    python notify.py --guard-hour 6  # nur ausführen, wenn es lokal 6 Uhr ist
-                                     # (für den doppelten UTC-Cron in der Action)
+    python notify.py --guard-window 4-11   # nur senden, wenn die lokale
+                                           # Stunde im Fenster liegt
 """
 
 from __future__ import annotations
@@ -195,18 +195,22 @@ def main() -> int:
         "(für manuelle Tests des Bots).",
     )
     parser.add_argument(
-        "--guard-hour",
-        type=int,
+        "--guard-window",
         default=None,
-        help="Nur ausführen, wenn die lokale Stunde (Europe/Zurich) diesem "
-        "Wert entspricht. Erlaubt zwei UTC-Crons für Sommer-/Winterzeit.",
+        metavar="VON-BIS",
+        help="Nur senden, wenn die lokale Stunde (Europe/Zurich) im Fenster "
+        "liegt, z.B. 4-11. Nötig, weil GitHub geplante Läufe um bis zu "
+        "zwei Stunden verzögert startet — eine Morgenmeldung soll aber "
+        "nicht mittags eintreffen.",
     )
     args = parser.parse_args()
 
     now = dt.datetime.now(TZ)
-    if args.guard_hour is not None and now.hour != args.guard_hour:
-        print(f"Lokale Zeit {now:%H:%M} — nicht Stunde {args.guard_hour}, überspringe.")
-        return 0
+    if args.guard_window:
+        first, last = (int(p) for p in args.guard_window.split("-"))
+        if not first <= now.hour <= last:
+            print(f"Lokale Zeit {now:%H:%M} — ausserhalb {first}-{last} Uhr, überspringe.")
+            return 0
 
     hours = build_hours(fetch_forecast())
     per_threshold = windows_today_tomorrow(hours)

@@ -2,11 +2,12 @@ name: Kite-Benachrichtigung
 
 on:
   schedule:
-    # 06:30 Europe/Zurich — GitHub-Cron läuft in UTC, deshalb zwei Einträge
-    # (Sommerzeit: 04:30 UTC, Winterzeit: 05:30 UTC). notify.py --guard-hour 6
-    # stellt sicher, dass nur der jeweils passende Lauf wirklich sendet.
-    - cron: "30 4 * * *"
-    - cron: "30 5 * * *"
+    # Ein Lauf pro Tag, 03:30 UTC. GitHub startet geplante Läufe unter Last
+    # regelmässig ~2 h zu spät, deshalb bewusst früh angesetzt: die Meldung
+    # trifft real zwischen ca. 05:30 und 07:30 Europe/Zurich ein (Sommerzeit).
+    # --guard-window verhindert nur noch, dass eine extrem verzögerte
+    # Morgenmeldung erst mittags rausgeht.
+    - cron: "30 3 * * *"
   workflow_dispatch:
 
 jobs:
@@ -29,5 +30,5 @@ jobs:
             # auch wenn kein Kite-Fenster prognostiziert ist
             python notify.py --always
           else
-            python notify.py --guard-hour 6
+            python notify.py --guard-window 4-11
           fi
