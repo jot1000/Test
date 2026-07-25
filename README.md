@@ -140,21 +140,24 @@ Root liegen, ist das Dashboard danach direkt online. Der Workflow
    - Secret `TELEGRAM_CHAT_ID`
    - optional Variable `DASHBOARD_URL` (Link in der Nachricht)
 4. Fertig — der Workflow
-   [`kite-notify.yml`](.github/workflows/kite-notify.yml) prüft täglich um
-   **06:30 Europe/Zurich** die Prognose für heute und morgen. Gibt es ein
-   Kite-Fenster, kommt eine Nachricht mit Zeitfenster, Wind/Böen in kn,
-   Richtung und Schwelle (twintip-Fenster werden nicht doppelt als foil
-   gemeldet). Kein Fenster → keine Nachricht.
+   [`kite-notify.yml`](.github/workflows/kite-notify.yml) prüft jeden
+   Morgen die Prognose für heute und morgen. Gibt es ein Kite-Fenster,
+   kommt eine Nachricht mit Zeitfenster, Wind/Böen in kn, Richtung und
+   Schwelle (twintip-Fenster werden nicht doppelt als foil gemeldet).
+   Kein Fenster → keine Nachricht.
 
-   Da GitHub-Crons in UTC laufen, sind zwei Cron-Einträge hinterlegt
-   (Sommer-/Winterzeit); `--guard-hour 6` sorgt dafür, dass nur der
-   passende sendet.
+   **Zur Uhrzeit:** GitHub startet geplante Läufe unter Last regelmässig
+   ein bis zwei Stunden zu spät — eine exakte Uhrzeit ist damit nicht
+   erreichbar. Der Cron steht deshalb bewusst früh (03:30 UTC), die
+   Meldung trifft real etwa zwischen 05:30 und 07:30 Europe/Zurich ein.
+   `--guard-window 4-11` verhindert nur noch, dass eine extrem
+   verzögerte Morgenmeldung erst mittags rausgeht.
 
    **Bot testen:** Wird der Workflow manuell gestartet (Actions →
    „Kite-Benachrichtigung" → „Run workflow"), kommt **immer** eine
    Nachricht — ohne Kite-Fenster eine Statusmeldung mit dem höchsten
-   prognostizierten Wind (`notify.py --always`). Der tägliche
-   6:30-Lauf bleibt spamfrei.
+   prognostizierten Wind (`notify.py --always`). Der tägliche Lauf
+   bleibt spamfrei.
 
 Lokal testen:
 
